@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "grimoire-backend"
+version = "0.1.0"
+description = "Grimoire Studio Backend"
+authors = ["Vincent"]
+readme = "README.md"
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+sqlmodel = "^0.0.14"
+alembic = "^1.13.1"
+psycopg2-binary = "^2.9.9"
+pgvector = "^0.2.4"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+tenacity = "^8.2.3"
+jinja2 = "^3.1.3"
+python-multipart = "^0.0.6"
+pydantic-settings = "^2.1.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+httpx = "^0.26.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

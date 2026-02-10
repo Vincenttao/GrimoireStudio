@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.poetry/
+.pytest_cache/
+.cache/
+backend/dist/
+backend/build/
+*.egg-info/
+backend/alembic/versions/*.pyc
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+.pnpm-debug.log*
+
+# Docker
+.docker_data/
+postgres_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+
+# Project specific
+backend/tests/.pytest_cache/
