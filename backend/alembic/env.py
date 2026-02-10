@@ -9,8 +9,7 @@ from alembic import context
 from sqlmodel import SQLModel
 from app.core.config import settings
 # Import all models here for Alembic to detect them
-# from app.models.user import User
-# ...
+from app.models import user, project, entity, chapter
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -14,13 +14,18 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "grimoire"
     SQLALCHEMY_DATABASE_URI: str | None = None
 
+    # AI Service
+    OPENAI_API_KEY: str = "sk-..."
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    AI_MODEL: str = "gpt-3.5-turbo"
+
     @validator("SQLALCHEMY_DATABASE_URI", pre=True)
     def assemble_db_connection(cls, v: str | None, values: dict) -> str:
         if isinstance(v, str):
             return v
         return f"postgresql://{values.get('POSTGRES_USER')}:{values.get('POSTGRES_PASSWORD')}@{values.get('POSTGRES_SERVER')}/{values.get('POSTGRES_DB')}"
 
-    BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []
+    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
     class Config:
         case_sensitive = True

@@ -1,0 +1,9 @@
+{% extends "base_prompt.j2" %}
+{% block narrative_mode_instruction %}
+CURRENT MODE: CONFLICT (Yes And / No But)
+
+You MUST generate 3 variants following these specific strategies:
+1. Slot 1 (External Block): Introduce a physical obstacle to impede the protagonist.
+2. Slot 2 (Internal Doubt): Shift focus to the protagonist's hesitation and fear.
+3. Slot 3 (Escalation): Make the current situation more dangerous or urgent.
+{% endblock %}
