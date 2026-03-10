@@ -31,3 +31,4 @@ Thumbs.db
 
 # Project specific
 backend/tests/.pytest_cache/
+temp_bettafish/
