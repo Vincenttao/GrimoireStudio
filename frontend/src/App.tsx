@@ -1,6 +1,6 @@
-import { Route, Switch } from 'wouter';
+import { Route, Switch, Redirect } from 'wouter';
 import Sidebar from './components/Sidebar';
-import MusePage from './pages/MusePage';
+import MusePanel from './components/MusePanel';
 import StoryboardPage from './pages/StoryboardPage';
 import CharactersPage from './pages/CharactersPage';
 import ArchivePage from './pages/ArchivePage';
@@ -12,13 +12,16 @@ function App() {
       <Sidebar />
       <main className="flex-1 overflow-hidden">
         <Switch>
-          <Route path="/" component={MusePage} />
           <Route path="/storyboard" component={StoryboardPage} />
           <Route path="/characters" component={CharactersPage} />
           <Route path="/archive" component={ArchivePage} />
           <Route path="/settings" component={SettingsPage} />
+          <Route path="/">
+            <Redirect to="/storyboard" />
+          </Route>
         </Switch>
       </main>
+      <MusePanel />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Sparkles, Square, Wand2, Bot, User } from 'lucide-react';
+import { Send, Sparkles, Square, Wand2, Bot, User, PanelRightClose } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { uuid } from '../lib/utils';
 import { sandboxApi } from '../lib/api';
@@ -13,7 +13,7 @@ interface ChatMessage {
   timestamp: Date;
 }
 
-export default function MusePage() {
+export default function MusePanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
@@ -25,6 +25,7 @@ export default function MusePage() {
   const [input, setInput] = useState('');
   const [sandboxState, setSandboxState] = useState<SandboxState>('IDLE');
   const [currentSparkId, setCurrentSparkId] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -64,14 +65,12 @@ export default function MusePage() {
     const sparkId = uuid();
     setCurrentSparkId(sparkId);
 
-    // Add user message
     setMessages((prev) => [
       ...prev,
       { id: uuid(), role: 'user', content: text, timestamp: new Date() },
     ]);
     setInput('');
 
-    // Add Muse acknowledgement
     setMessages((prev) => [
       ...prev,
       {
@@ -127,29 +126,29 @@ export default function MusePage() {
         key={msg.id}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className={cn('flex gap-3 group', isUser ? 'flex-row-reverse' : '')}
+        className={cn('flex gap-2 group', isUser ? 'flex-row-reverse' : '')}
       >
         {/* Avatar */}
         <div className={cn(
-          'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
+          'w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0',
           isUser
             ? 'bg-grimoire-accent/20 text-grimoire-accent-glow'
             : isMuse
               ? 'bg-gradient-to-br from-grimoire-accent to-grimoire-gold text-white'
               : 'bg-grimoire-border text-grimoire-text-muted'
         )}>
-          {isUser ? <User className="w-4 h-4" /> : isMuse ? <Wand2 className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+          {isUser ? <User className="w-3.5 h-3.5" /> : isMuse ? <Wand2 className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
         </div>
 
         {/* Bubble */}
         <div className={cn(
-          'max-w-[75%] rounded-xl px-4 py-3 text-sm leading-relaxed',
+          'max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed',
           isUser
             ? 'bg-grimoire-accent/15 border border-grimoire-accent/20 text-grimoire-text'
             : 'glass-card text-grimoire-text'
         )}>
           <p className="whitespace-pre-wrap">{msg.content}</p>
-          <p className="text-[10px] text-grimoire-text-muted mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <p className="text-[9px] text-grimoire-text-muted mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
             {msg.timestamp.toLocaleTimeString()}
           </p>
         </div>
@@ -157,31 +156,58 @@ export default function MusePage() {
     );
   };
 
+  // Collapsed state — just show icon strip
+  if (collapsed) {
+    return (
+      <div className="w-12 h-screen flex flex-col items-center border-l border-grimoire-border bg-grimoire-surface/50 py-4">
+        <button
+          onClick={() => setCollapsed(false)}
+          className="w-8 h-8 rounded-lg bg-gradient-to-br from-grimoire-accent to-grimoire-gold flex items-center justify-center hover:scale-105 transition-transform"
+          title="Open The Muse"
+        >
+          <Sparkles className="w-4 h-4 text-white" />
+        </button>
+        {isRunning && (
+          <div className="mt-3 w-2 h-2 bg-grimoire-accent rounded-full animate-pulse" />
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex-1 flex flex-col h-screen">
+    <motion.div
+      initial={{ width: 0, opacity: 0 }}
+      animate={{ width: 340, opacity: 1 }}
+      exit={{ width: 0, opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      className="h-screen flex flex-col border-l border-grimoire-border bg-grimoire-surface/30 backdrop-blur-sm"
+      style={{ width: 340, minWidth: 340 }}
+    >
       {/* Header */}
-      <header className="h-14 border-b border-grimoire-border flex items-center justify-between px-6 bg-grimoire-surface/50 backdrop-blur-sm">
-        <div className="flex items-center gap-3">
-          <Sparkles className="w-5 h-5 text-grimoire-accent-glow" />
-          <h2 className="text-base font-semibold">The Muse</h2>
-          <span className="text-xs text-grimoire-text-muted font-mono">— Dialogue Gateway</span>
+      <header className="h-14 border-b border-grimoire-border flex items-center justify-between px-4 bg-grimoire-surface/50 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-grimoire-accent-glow" />
+          <h2 className="text-sm font-semibold">The Muse</h2>
         </div>
         <div className="flex items-center gap-2">
           {isRunning && (
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              className="flex items-center gap-2 px-3 py-1 rounded-full bg-grimoire-accent/10 border border-grimoire-accent/20"
-            >
-              <div className="w-2 h-2 bg-grimoire-accent rounded-full animate-pulse" />
-              <span className="text-xs text-grimoire-accent-glow font-mono">{sandboxState}</span>
-            </motion.div>
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-grimoire-accent/10 border border-grimoire-accent/20">
+              <div className="w-1.5 h-1.5 bg-grimoire-accent rounded-full animate-pulse" />
+              <span className="text-[10px] text-grimoire-accent-glow font-mono">{sandboxState}</span>
+            </div>
           )}
+          <button
+            onClick={() => setCollapsed(true)}
+            className="w-7 h-7 rounded-md flex items-center justify-center text-grimoire-text-muted hover:text-grimoire-text hover:bg-grimoire-hover transition-colors"
+            title="Collapse panel"
+          >
+            <PanelRightClose className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
         <AnimatePresence>
           {messages.map(renderMessage)}
         </AnimatePresence>
@@ -189,24 +215,24 @@ export default function MusePage() {
       </div>
 
       {/* Input Bar */}
-      <div className="border-t border-grimoire-border p-4 bg-grimoire-surface/50 backdrop-blur-sm">
-        <div className="flex items-end gap-3 max-w-4xl mx-auto">
+      <div className="border-t border-grimoire-border p-3 bg-grimoire-surface/50">
+        <div className="flex items-end gap-2">
           <div className="flex-1 relative">
             <textarea
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Describe a scene, conflict, or moment..."
+              placeholder="Ask The Muse..."
               rows={1}
-              className="input-dark resize-none min-h-[44px] max-h-32 pr-12"
+              className="input-dark resize-none min-h-[38px] max-h-24 text-xs"
               disabled={isRunning}
             />
           </div>
 
           {isRunning ? (
-            <button onClick={handleCut} className="btn-danger flex items-center gap-2" id="cut-button">
-              <Square className="w-4 h-4" />
+            <button onClick={handleCut} className="btn-danger flex items-center gap-1 text-xs px-3 py-2" id="cut-button">
+              <Square className="w-3 h-3" />
               <span>CUT</span>
             </button>
           ) : (
@@ -214,17 +240,16 @@ export default function MusePage() {
               onClick={handleSend}
               disabled={!input.trim()}
               className={cn(
-                'btn-glow flex items-center gap-2',
+                'btn-glow flex items-center gap-1 text-xs px-3 py-2',
                 !input.trim() && 'opacity-50 cursor-not-allowed'
               )}
               id="send-button"
             >
-              <Send className="w-4 h-4" />
-              <span>Ignite</span>
+              <Send className="w-3 h-3" />
             </button>
           )}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

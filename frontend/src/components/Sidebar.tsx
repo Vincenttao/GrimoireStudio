@@ -3,7 +3,6 @@ import { useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BookOpen,
-  Sparkles,
   Users,
   Map,
   Settings,
@@ -22,7 +21,6 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { icon: Sparkles, label: 'The Muse', path: '/' },
   { icon: Map, label: 'Storyboard', path: '/storyboard' },
   { icon: Users, label: 'Characters', path: '/characters' },
   { icon: BookOpen, label: 'Archive', path: '/archive' },
