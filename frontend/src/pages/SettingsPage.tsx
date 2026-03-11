@@ -6,6 +6,7 @@ import { settingsApi } from '../lib/api';
 interface ProjectSettings {
   llm_model: string;
   llm_api_key: string;
+  llm_api_base: string;
   max_turns: number;
   tension_threshold: number;
   subtext_ratio: number;
@@ -14,6 +15,7 @@ interface ProjectSettings {
 const DEFAULT_SETTINGS: ProjectSettings = {
   llm_model: 'gpt-4',
   llm_api_key: '',
+  llm_api_base: '',
   max_turns: 12,
   tension_threshold: 0.8,
   subtext_ratio: 0.3,
@@ -130,6 +132,19 @@ export default function SettingsPage() {
                   onChange={(e) => updateField('llm_api_key', e.target.value)}
                   placeholder="sk-..."
                 />
+              </div>
+              <div>
+                <label className="text-xs text-grimoire-text-muted uppercase tracking-wider mb-1.5 block">API Base URL</label>
+                <input
+                  type="text"
+                  className="input-dark"
+                  value={settings.llm_api_base}
+                  onChange={(e) => updateField('llm_api_base', e.target.value)}
+                  placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+                />
+                <p className="text-[10px] text-grimoire-text-muted mt-1">
+                  自定义 OpenAI 兼容端点（阿里云、DeepSeek 等）。留空则使用供应商默认地址
+                </p>
               </div>
             </div>
           </motion.div>

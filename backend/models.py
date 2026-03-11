@@ -212,6 +212,10 @@ class ProjectSettings(BaseModel):
     
     id: str = "single_row_lock"
     llm_api_keys: LLMApiKeys
+    llm_api_base: Optional[str] = Field(
+        default=None,
+        description="自定义 API 端点 URL，如阿里云 DashScope 的 OpenAI 兼容地址。留空则使用模型供应商默认端点"
+    )
     default_render_mixer: DefaultRenderMixer
 
 # ==========================================

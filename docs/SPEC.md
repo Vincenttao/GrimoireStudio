@@ -209,6 +209,7 @@ _⚠️ AI 编码守则: 绝对禁止让 Scribe 输出完整的 Entity 对象，
     "anthropic": "string | null",
     "deepseek": "string | null"
   },
+  "llm_api_base": "string | null (自定义 API 端点 URL，如阿里云 DashScope 的 OpenAI 兼容地址。留空则使用模型供应商默认端点)",
   "default_render_mixer": {
     "pov_type": "string",
     "style_template": "string",

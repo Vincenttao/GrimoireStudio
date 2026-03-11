@@ -31,7 +31,7 @@ cd frontend && npm install && cd ..
 
 ```bash
 # 从项目根目录启动
-uv run uvicorn backend.main:app --reload --port 8000
+uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 验证：访问 `http://localhost:8000/health`，应返回 `{"status": "ok"}`
@@ -46,6 +46,9 @@ cd frontend && npm run dev
 
 > [!NOTE]
 > 前端 Vite 已配置代理，`/api/*` 和 `/ws/*` 请求自动转发至后端 `localhost:8000`
+
+> [!IMPORTANT]
+> **WSL2 用户须知：** WSL2 的网络为独立虚拟网段，服务必须绑定 `0.0.0.0` 才能被 Windows 宿主机通过 `localhost` 访问。后端已在启动命令中添加 `--host 0.0.0.0`，前端已在 `vite.config.ts` 中配置 `host: true`。
 
 ---
 
@@ -281,4 +284,44 @@ curl http://localhost:8000/api/v1/sandbox/state
 | `sqlite3.OperationalError: database is locked` | 并发写入冲突 | 已通过 WAL 模式解决，确认 `database.py` 中 PRAGMA 正确 |
 | 前端 API 请求 404 | 后端未启动或端口不匹配 | 确认后端运行在 `8000` 端口 |
 | `CORS error` in browser | 跨域请求被拦截 | 已在 `main.py` 中配置 `allow_origins=["*"]` |
-| 前端编译报错 | 依赖未安装 | 运行 `cd frontend && npm install` |
+---
+
+## 7. 环境清理与服务关闭
+
+在重新启动服务、运行测试或切换开发分支前，建议确保之前的进程已完全退出。
+
+### 快捷命令 (强制关闭)
+
+如果遇到端口占用，可使用以下命令强制终止残留进程：
+
+```bash
+# 关闭后端 (8000 端口)
+fuser -k 8000/tcp
+
+# 关闭前端 (5173 端口)
+fuser -k 5173/tcp
+```
+
+### 手动检查进程
+
+若想确认进程是否仍在运行，可搜索相关的关键词：
+
+```bash
+# 检查后端 (Uvicorn)
+ps aux | grep uvicorn
+
+# 检查前端 (Vite)
+ps aux | grep vite
+```
+
+### 检查端口占用
+
+在 Linux/WSL 下，可以使用 `lsof` 查看哪些进程正在监听特定端口：
+
+```bash
+lsof -i :8000
+lsof -i :5173
+```
+
+> [!TIP]
+> 如果 `lsof` 或 `fuser` 未安装，可以使用 `sudo apt install lsof psmisc` 进行安装。
