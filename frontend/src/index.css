@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply bg-grimoire-bg text-grimoire-text font-sans antialiased;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  #root {
+    height: 100vh;
+    display: flex;
+  }
+
+  /* Custom scrollbar for the dark theme */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-grimoire-bg;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-grimoire-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-grimoire-text-muted;
+  }
+}
+
+@layer components {
+  /* Glass Card */
+  .glass-card {
+    @apply bg-grimoire-card/80 backdrop-blur-md border border-grimoire-border rounded-xl;
+  }
+
+  /* Glow Button */
+  .btn-glow {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200
+           bg-grimoire-accent text-white
+           hover:bg-grimoire-accent-glow hover:shadow-lg hover:shadow-grimoire-accent/30
+           active:scale-95;
+  }
+
+  .btn-ghost {
+    @apply px-3 py-1.5 rounded-lg font-medium transition-all duration-200
+           text-grimoire-text-dim hover:text-grimoire-text hover:bg-grimoire-hover;
+  }
+
+  .btn-danger {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200
+           bg-grimoire-danger/20 text-grimoire-danger border border-grimoire-danger/30
+           hover:bg-grimoire-danger/30 active:scale-95;
+  }
+
+  /* Input fields */
+  .input-dark {
+    @apply w-full px-3 py-2 rounded-lg
+           bg-grimoire-surface border border-grimoire-border
+           text-grimoire-text placeholder-grimoire-text-muted
+           focus:outline-none focus:border-grimoire-accent focus:ring-1 focus:ring-grimoire-accent/50
+           transition-all duration-200;
+  }
+
+  /* Status indicator dot */
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+  .status-dot-active {
+    @apply bg-grimoire-success animate-pulse-slow;
+  }
+  .status-dot-idle {
+    @apply bg-grimoire-text-muted;
+  }
+  .status-dot-danger {
+    @apply bg-grimoire-danger animate-pulse;
+  }
+}
