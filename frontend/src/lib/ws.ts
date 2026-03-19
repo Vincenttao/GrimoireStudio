@@ -4,14 +4,23 @@
  * SPEC §4.2 WebSocket Channel Compliance
  */
 
-export type SandboxState = 'IDLE' | 'SPARK_RECEIVED' | 'REASONING' | 'EMITTING_IR' | 'RENDERING' | 'INTERRUPTED';
+export type SandboxState = 
+  | 'IDLE' 
+  | 'SPARK_RECEIVED' 
+  | 'REASONING' 
+  | 'CALLING_CHARACTER' 
+  | 'EVALUATING' 
+  | 'EMITTING_IR' 
+  | 'RENDERING' 
+  | 'COMMITTED' 
+  | 'INTERRUPTED';
 
 export interface WSEvent {
-  event: string;
-  data: Record<string, unknown>;
+  type: string;
+  payload: Record<string, unknown>;
 }
 
-type EventHandler = (data: Record<string, unknown>) => void;
+type EventHandler = (payload: Record<string, unknown>) => void;
 
 class WebSocketManager {
   private ws: WebSocket | null = null;
@@ -21,7 +30,7 @@ class WebSocketManager {
   private _isConnected = false;
 
   constructor(url?: string) {
-    this._url = url || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/sandbox`;
+    this._url = url || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
   }
 
   get isConnected(): boolean {
@@ -29,7 +38,7 @@ class WebSocketManager {
   }
 
   connect(): void {
-    if (this.ws?.readyState === WebSocket.OPEN) return;
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) return;
 
     try {
       this.ws = new WebSocket(this._url);
@@ -43,22 +52,29 @@ class WebSocketManager {
       this.ws.onmessage = (event) => {
         try {
           const parsed: WSEvent = JSON.parse(event.data);
-          this.emit(parsed.event, parsed.data);
+          if (parsed.type) {
+            this.emit(parsed.type, parsed.payload || {});
+          }
         } catch (e) {
           console.error('[WS] Failed to parse message:', e);
         }
       };
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
         this._isConnected = false;
-        console.log('[WS] Disconnected. Reconnecting in 3s...');
-        this.emit('CONNECTION_STATUS', { connected: false });
-        this.scheduleReconnect();
+        // Only reconnect if it wasn't a clean, intentional closure
+        if (this.ws) {
+          console.log('[WS] Disconnected. Reconnecting in 3s...');
+          this.emit('CONNECTION_STATUS', { connected: false });
+          this.scheduleReconnect();
+        }
       };
 
       this.ws.onerror = (err) => {
-        console.error('[WS] Error:', err);
-        this.ws?.close();
+        // Only log error if we're not in the middle of a manual disconnect
+        if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
+          console.error('[WS] Error:', err);
+        }
       };
     } catch (e) {
       console.error('[WS] Connection failed:', e);
@@ -71,8 +87,16 @@ class WebSocketManager {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
-    this.ws?.close();
-    this.ws = null;
+    
+    if (this.ws) {
+      // Remove handlers before closing to prevent errors/reconnects during intentional shutdown
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
     this._isConnected = false;
   }
 

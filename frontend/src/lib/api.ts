@@ -4,7 +4,7 @@
  * SPEC §4.1 REST Endpoint Compliance
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api/v1';
+const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
 
 interface ApiOptions {
   method?: string;
@@ -112,4 +112,50 @@ export const storyboardApi = {
 export const settingsApi = {
   get: () => request<{ settings: unknown }>('/settings'),
   update: (data: unknown) => request('/settings', { method: 'PATCH', body: data }),
+};
+
+// ===========================
+// Muse API
+// ===========================
+export const museApi = {
+  chatStream: async function* (messages: { role: string; content: string }[]) {
+    const response = await fetch(`${API_BASE}/muse/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ messages }),
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') return;
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.error) throw new Error(parsed.error);
+            if (parsed.content) yield parsed.content;
+          } catch (e) {
+            // ignore parse errors for partial lines
+          }
+        }
+      }
+    }
+  }
 };

@@ -46,21 +46,49 @@ async def trigger_spark(spark: TheSpark, background_tasks: BackgroundTasks):
     """
     logger.info(f"Received Spark: {spark.spark_id} for Chapter {spark.chapter_id}")
     
-    # Mocking fetching the Grimoire Snapshot for Phase 4
-    # Real SQLite queries will be added in Phase 5
-    mock_grimoire = GrimoireSnapshot(
-        snapshot_id="mock_snap_1",
+    from backend.database import get_db_connection
+    from backend.models import Entity, BaseAttributes, CurrentStatus
+    import json
+
+    # 1. Fetch active entities from DB to populate the snapshot
+    entities = []
+    async with get_db_connection() as conn:
+        async with conn.execute("SELECT * FROM entities WHERE is_deleted = 0") as cursor:
+            rows = await cursor.fetchall()
+            for row in rows:
+                entities.append(Entity(
+                    entity_id=row["entity_id"],
+                    type=row["type"],
+                    name=row["name"],
+                    base_attributes=BaseAttributes.model_validate_json(row["base_attributes_json"]),
+                    current_status=CurrentStatus.model_validate_json(row["current_status_json"]),
+                    is_deleted=bool(row["is_deleted"]),
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                    updated_at=datetime.fromisoformat(row["updated_at"])
+                ))
+
+    # PRE-FLIGHT CHECK: Maestro cannot orchestrate an empty world.
+    if not entities:
+        logger.warning("Attempted to start spark with zero entities.")
+        raise HTTPException(
+            status_code=400, 
+            detail="格里莫 (Grimoire) 为空。请先通过 Muse 或设定页面创建一个角色。没有演员，创世引擎无法开场。"
+        )
+
+    # 2. Build the Snapshot for Maestro
+    grimoire_snapshot = GrimoireSnapshot(
+        snapshot_id="active_snapshot",
         branch_id="main",
         parent_snapshot_id=None,
         triggering_block_id="genesis",
-        grimoire_state_json=GrimoireStateJSON(entities=[]),
+        grimoire_state_json=GrimoireStateJSON(entities=entities),
         created_at=datetime.utcnow()
     )
     
-    # 1. Fire the Async Task
-    task = asyncio.create_task(run_maestro_orchestration(spark, mock_grimoire))
+    # 3. Fire the Async Task
+    task = asyncio.create_task(run_maestro_orchestration(spark, grimoire_snapshot))
     
-    # 2. Register for possible Cut tracking
+    # 4. Register for possible Cut tracking
     manager.register_task(spark.spark_id, task)
     
     return {"message": "Accepted", "spark_id": spark.spark_id}

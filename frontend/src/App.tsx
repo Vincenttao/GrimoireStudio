@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Route, Switch, Redirect } from 'wouter';
 import Sidebar from './components/Sidebar';
 import MusePanel from './components/MusePanel';
@@ -5,8 +6,14 @@ import StoryboardPage from './pages/StoryboardPage';
 import CharactersPage from './pages/CharactersPage';
 import ArchivePage from './pages/ArchivePage';
 import SettingsPage from './pages/SettingsPage';
+import { wsManager } from './lib/ws';
 
 function App() {
+  useEffect(() => {
+    wsManager.connect();
+    return () => wsManager.disconnect();
+  }, []);
+
   return (
     <div className="flex h-screen w-screen bg-grimoire-bg overflow-hidden">
       <Sidebar />

@@ -1,3 +1,5 @@
+import typography from '@tailwindcss/typography';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -5,16 +7,16 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
+    // ... rest of the theme remains same
     extend: {
       colors: {
-        // Genesis Engine Dark Theme Palette
         grimoire: {
           bg: '#0a0a0f',
           surface: '#12121a',
           card: '#1a1a28',
           border: '#2a2a3d',
           hover: '#252538',
-          accent: '#7c3aed',      // Vivid violet
+          accent: '#7c3aed',
           'accent-glow': '#a855f7',
           gold: '#f59e0b',
           'gold-dim': '#b45309',
@@ -56,5 +58,7 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    typography,
+  ],
 }

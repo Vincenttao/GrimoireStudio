@@ -4,21 +4,38 @@ import { Settings, Save, Loader2, Check, AlertCircle } from 'lucide-react';
 import { settingsApi } from '../lib/api';
 
 interface ProjectSettings {
+  id?: string;
   llm_model: string;
-  llm_api_key: string;
-  llm_api_base: string;
+  llm_api_keys: {
+    openai: string | null;
+    anthropic: string | null;
+    deepseek: string | null;
+  };
+  llm_api_base: string | null;
   max_turns: number;
   tension_threshold: number;
-  subtext_ratio: number;
+  default_render_mixer: {
+    pov_type: string;
+    style_template: string;
+    subtext_ratio: number;
+  };
 }
 
 const DEFAULT_SETTINGS: ProjectSettings = {
   llm_model: 'gpt-4',
-  llm_api_key: '',
+  llm_api_keys: {
+    openai: '',
+    anthropic: '',
+    deepseek: '',
+  },
   llm_api_base: '',
   max_turns: 12,
   tension_threshold: 0.8,
-  subtext_ratio: 0.3,
+  default_render_mixer: {
+    pov_type: 'OMNISCIENT',
+    style_template: 'Standard',
+    subtext_ratio: 0.3,
+  },
 };
 
 export default function SettingsPage() {
@@ -32,10 +49,23 @@ export default function SettingsPage() {
     try {
       const data = await settingsApi.get();
       if (data.settings && typeof data.settings === 'object') {
-        setSettings({ ...DEFAULT_SETTINGS, ...(data.settings as Partial<ProjectSettings>) });
+        // Deep merge to ensure all fields exist
+        const merged = {
+          ...DEFAULT_SETTINGS,
+          ...(data.settings as Partial<ProjectSettings>),
+          llm_api_keys: {
+            ...DEFAULT_SETTINGS.llm_api_keys,
+            ...(data.settings as ProjectSettings).llm_api_keys,
+          },
+          default_render_mixer: {
+            ...DEFAULT_SETTINGS.default_render_mixer,
+            ...(data.settings as ProjectSettings).default_render_mixer,
+          },
+        };
+        setSettings(merged);
       }
-    } catch {
-      // Use defaults if backend is offline
+    } catch (err) {
+      console.error('Failed to fetch settings:', err);
     } finally {
       setLoading(false);
     }
@@ -59,10 +89,33 @@ export default function SettingsPage() {
     }
   };
 
-  const updateField = <K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]) => {
+  const updateRootField = <K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
   };
+
+  const updateNestedField = (
+    category: 'llm_api_keys' | 'default_render_mixer',
+    key: string,
+    value: string | number | null
+  ) => {
+    setSettings((prev) => ({
+      ...prev,
+      [category]: {
+        ...prev[category],
+        [key]: value,
+      },
+    }));
+    setSaved(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-grimoire-accent animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col h-screen">
@@ -115,31 +168,45 @@ export default function SettingsPage() {
                 <input
                   type="text"
                   className="input-dark"
-                  value={settings.llm_model}
-                  onChange={(e) => updateField('llm_model', e.target.value)}
+                  value={settings.llm_model || ''}
+                  onChange={(e) => updateRootField('llm_model', e.target.value)}
                   placeholder="e.g., gpt-4, claude-3-sonnet"
                 />
                 <p className="text-[10px] text-grimoire-text-muted mt-1">
                   Supports all LiteLLM-compatible model identifiers
                 </p>
               </div>
-              <div>
-                <label className="text-xs text-grimoire-text-muted uppercase tracking-wider mb-1.5 block">API Key</label>
-                <input
-                  type="password"
-                  className="input-dark"
-                  value={settings.llm_api_key}
-                  onChange={(e) => updateField('llm_api_key', e.target.value)}
-                  placeholder="sk-..."
-                />
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-grimoire-text-muted uppercase tracking-wider mb-1.5 block">OpenAI Key</label>
+                  <input
+                    type="password"
+                    className="input-dark"
+                    value={settings.llm_api_keys.openai || ''}
+                    onChange={(e) => updateNestedField('llm_api_keys', 'openai', e.target.value)}
+                    placeholder="sk-..."
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-grimoire-text-muted uppercase tracking-wider mb-1.5 block">Anthropic Key</label>
+                  <input
+                    type="password"
+                    className="input-dark"
+                    value={settings.llm_api_keys.anthropic || ''}
+                    onChange={(e) => updateNestedField('llm_api_keys', 'anthropic', e.target.value)}
+                    placeholder="sk-ant-..."
+                  />
+                </div>
               </div>
+
               <div>
                 <label className="text-xs text-grimoire-text-muted uppercase tracking-wider mb-1.5 block">API Base URL</label>
                 <input
                   type="text"
                   className="input-dark"
-                  value={settings.llm_api_base}
-                  onChange={(e) => updateField('llm_api_base', e.target.value)}
+                  value={settings.llm_api_base || ''}
+                  onChange={(e) => updateRootField('llm_api_base', e.target.value)}
                   placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
                 />
                 <p className="text-[10px] text-grimoire-text-muted mt-1">
@@ -169,7 +236,7 @@ export default function SettingsPage() {
                   type="number"
                   className="input-dark"
                   value={settings.max_turns}
-                  onChange={(e) => updateField('max_turns', parseInt(e.target.value) || 12)}
+                  onChange={(e) => updateRootField('max_turns', parseInt(e.target.value) || 12)}
                   min={1}
                   max={50}
                 />
@@ -183,7 +250,7 @@ export default function SettingsPage() {
                   type="number"
                   className="input-dark"
                   value={settings.tension_threshold}
-                  onChange={(e) => updateField('tension_threshold', parseFloat(e.target.value) || 0.8)}
+                  onChange={(e) => updateRootField('tension_threshold', parseFloat(e.target.value) || 0.8)}
                   min={0}
                   max={1}
                   step={0.05}
@@ -197,8 +264,8 @@ export default function SettingsPage() {
                 <input
                   type="number"
                   className="input-dark"
-                  value={settings.subtext_ratio}
-                  onChange={(e) => updateField('subtext_ratio', parseFloat(e.target.value) || 0.3)}
+                  value={settings.default_render_mixer.subtext_ratio}
+                  onChange={(e) => updateNestedField('default_render_mixer', 'subtext_ratio', parseFloat(e.target.value) || 0.3)}
                   min={0}
                   max={1}
                   step={0.05}

@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Sparkles, Square, Wand2, Bot, User, PanelRightClose } from 'lucide-react';
+import { Send, Sparkles, Square, Wand2, Bot, User, PanelRightClose, Check } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { cn } from '../lib/utils';
 import { uuid } from '../lib/utils';
-import { sandboxApi } from '../lib/api';
+import { sandboxApi, museApi, grimoireApi } from '../lib/api';
 import { wsManager, type SandboxState } from '../lib/ws';
 
 interface ChatMessage {
@@ -26,6 +27,7 @@ export default function MusePanel() {
   const [sandboxState, setSandboxState] = useState<SandboxState>('IDLE');
   const [currentSparkId, setCurrentSparkId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -60,42 +62,81 @@ export default function MusePanel() {
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || isRunning) return;
+    if (!text || isRunning || isTyping) return;
 
-    const sparkId = uuid();
-    setCurrentSparkId(sparkId);
-
-    setMessages((prev) => [
-      ...prev,
-      { id: uuid(), role: 'user', content: text, timestamp: new Date() },
-    ]);
     setInput('');
+    const newMessages: ChatMessage[] = [...messages, { id: uuid(), role: 'user', content: text, timestamp: new Date() }];
+    setMessages(newMessages);
+    setIsTyping(true);
 
+    const museMessageId = uuid();
     setMessages((prev) => [
       ...prev,
-      {
-        id: uuid(),
-        role: 'muse',
-        content: '🎭 The characters have heard your prompt. The Maestro is orchestrating...',
-        timestamp: new Date(),
-      },
+      { id: museMessageId, role: 'muse', content: '', timestamp: new Date() },
     ]);
 
     try {
-      await sandboxApi.triggerSpark({
-        spark_id: sparkId,
-        chapter_id: 'default-chapter',
-        user_prompt: text,
-      });
+      const history = newMessages
+        .filter(m => m.role !== 'system')
+        .map(m => ({ role: m.role, content: m.content }));
+        
+      const stream = museApi.chatStream(history);
+      
+      for await (const chunk of stream) {
+        setMessages((prev) => prev.map(m => {
+          if (m.id === museMessageId) {
+            return { ...m, content: m.content + chunk };
+          }
+          return m;
+        }));
+      }
     } catch (err) {
+      console.error('[MusePanel] chat error:', err);
       setMessages((prev) => [
         ...prev,
-        {
-          id: uuid(),
-          role: 'system',
-          content: `⚠️ Failed to send spark: ${err instanceof Error ? err.message : 'Unknown error'}`,
-          timestamp: new Date(),
-        },
+        { id: uuid(), role: 'system', content: `⚠️ Error: ${err instanceof Error ? err.message : 'Unknown error'}`, timestamp: new Date() },
+      ]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const executeToolCall = async (toolCall: any) => {
+    try {
+      if (toolCall.action === 'create_entity') {
+        const entity = {
+          entity_id: `char-${uuid().slice(0,8)}`,
+          type: toolCall.payload.type || 'CHARACTER',
+          name: toolCall.payload.name,
+          base_attributes: toolCall.payload.base_attributes,
+          current_status: { health: '100/100', inventory: [], relationships: {}, recent_memory_summary: [] },
+          is_deleted: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        await grimoireApi.createEntity(entity);
+        setMessages((prev) => [
+          ...prev,
+          { id: uuid(), role: 'system', content: `✅ Character **${entity.name}** created successfully.`, timestamp: new Date() }
+        ]);
+      } else if (toolCall.action === 'start_spark') {
+        const sparkId = uuid();
+        setCurrentSparkId(sparkId);
+        await sandboxApi.triggerSpark({
+          spark_id: sparkId,
+          chapter_id: 'default-chapter',
+          user_prompt: toolCall.payload.user_prompt,
+        });
+        setMessages((prev) => [
+          ...prev,
+          { id: uuid(), role: 'system', content: `🎬 The Spark has ignited. Maestro is rolling...`, timestamp: new Date() }
+        ]);
+      }
+    } catch (err) {
+      console.error('Tool call failed', err);
+      setMessages((prev) => [
+        ...prev,
+        { id: uuid(), role: 'system', content: `❌ Failed to execute action: ${err instanceof Error ? err.message : 'Unknown error'}`, timestamp: new Date() }
       ]);
     }
   };
@@ -121,6 +162,19 @@ export default function MusePanel() {
     const isUser = msg.role === 'user';
     const isMuse = msg.role === 'muse';
 
+    let displayContent = msg.content;
+    let toolCallData: any = null;
+
+    const toolCallMatch = msg.content.match(/```tool_call\n([\s\S]*?)\n```/);
+    if (toolCallMatch) {
+      displayContent = msg.content.replace(toolCallMatch[0], '').trim();
+      try {
+        toolCallData = JSON.parse(toolCallMatch[1]);
+      } catch (e) {
+        // ignore parse error while streaming
+      }
+    }
+
     return (
       <motion.div
         key={msg.id}
@@ -142,15 +196,46 @@ export default function MusePanel() {
 
         {/* Bubble */}
         <div className={cn(
-          'max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed',
-          isUser
-            ? 'bg-grimoire-accent/15 border border-grimoire-accent/20 text-grimoire-text'
-            : 'glass-card text-grimoire-text'
+          'max-w-[85%] flex flex-col gap-2',
+          isUser ? 'items-end' : 'items-start'
         )}>
-          <p className="whitespace-pre-wrap">{msg.content}</p>
-          <p className="text-[9px] text-grimoire-text-muted mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            {msg.timestamp.toLocaleTimeString()}
-          </p>
+          <div className={cn(
+            'rounded-xl px-3 py-2 text-xs leading-relaxed',
+            isUser
+              ? 'bg-grimoire-accent/15 border border-grimoire-accent/20 text-grimoire-text'
+              : 'glass-card text-grimoire-text'
+          )}>
+            <div className="prose prose-invert prose-sm max-w-none 
+              prose-p:my-1 first:prose-p:mt-0 last:prose-p:mb-0
+              prose-strong:text-grimoire-accent-glow prose-strong:font-semibold
+              prose-headings:text-grimoire-text prose-headings:my-2
+              prose-ul:my-1 prose-li:my-0.5">
+              <ReactMarkdown>
+                {displayContent || (isTyping && msg.role === 'muse' && !toolCallData ? '...' : '')}
+              </ReactMarkdown>
+            </div>
+            <p className="text-[9px] text-grimoire-text-muted mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {msg.timestamp.toLocaleTimeString()}
+            </p>
+          </div>
+          
+          {toolCallData && (
+            <div className="w-full rounded-lg bg-grimoire-surface/50 border border-grimoire-border p-3 space-y-2">
+              <div className="text-[10px] font-mono text-grimoire-text-muted">
+                {toolCallData.action === 'create_entity' ? 'CREATE ENTITY' : 'START SPARK'}
+              </div>
+              <pre className="text-[10px] text-grimoire-text-muted overflow-x-auto bg-black/20 p-2 rounded">
+                {JSON.stringify(toolCallData.payload, null, 2)}
+              </pre>
+              <button
+                onClick={() => executeToolCall(toolCallData)}
+                className="w-full btn-glow py-1.5 text-[10px] flex items-center justify-center gap-1 mt-2"
+              >
+                <Check className="w-3 h-3" />
+                <span>Confirm {toolCallData.action === 'create_entity' ? 'Creation' : 'Spark'}</span>
+              </button>
+            </div>
+          )}
         </div>
       </motion.div>
     );
@@ -231,12 +316,18 @@ export default function MusePanel() {
           </div>
 
           {isRunning ? (
-            <button onClick={handleCut} className="btn-danger flex items-center gap-1 text-xs px-3 py-2" id="cut-button">
+            <button
+              type="button"
+              onClick={handleCut}
+              className="btn-danger flex items-center gap-1 text-xs px-3 py-2"
+              id="cut-button"
+            >
               <Square className="w-3 h-3" />
               <span>CUT</span>
             </button>
           ) : (
             <button
+              type="button"
               onClick={handleSend}
               disabled={!input.trim()}
               className={cn(
