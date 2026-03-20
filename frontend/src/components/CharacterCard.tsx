@@ -1,6 +1,5 @@
 import { motion } from 'framer-motion';
 import { Trash2, Edit3, Heart, Package, Brain } from 'lucide-react';
-import { cn } from '../lib/utils';
 
 export interface CharacterEntity {
   entity_id: string;

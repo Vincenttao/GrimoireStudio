@@ -131,6 +131,100 @@ export default function MusePanel() {
           ...prev,
           { id: uuid(), role: 'system', content: `🎬 The Spark has ignited. Maestro is rolling...`, timestamp: new Date() }
         ]);
+      } else if (toolCall.action === 'update_entity') {
+        const { entity_id, updates } = toolCall.payload;
+        await grimoireApi.updateEntity(entity_id, updates);
+        setMessages((prev) => [
+          ...prev,
+          { id: uuid(), role: 'system', content: `✏️ Entity **${entity_id}** updated successfully.`, timestamp: new Date() }
+        ]);
+      } else if (toolCall.action === 'delete_entity') {
+        const { entity_id } = toolCall.payload;
+        await grimoireApi.deleteEntity(entity_id);
+        setMessages((prev) => [
+          ...prev,
+          { id: uuid(), role: 'system', content: `🗑️ Entity **${entity_id}** deleted.`, timestamp: new Date() }
+        ]);
+      } else if (toolCall.action === 'query_memory') {
+        const result = await grimoireApi.queryEntities(toolCall.payload.query || 'all');
+        const entityCount = result.count;
+        const memorySummary = result.entities
+          .map((e: any) => `**${e.name}**: ${e.current_status?.recent_memory_summary?.join(', ') || 'No memories'}`)
+          .join('\n');
+        setMessages((prev) => [
+          ...prev,
+          { 
+            id: uuid(), 
+            role: 'system', 
+            content: `📚 **World State** (${entityCount} entities):\n\n${memorySummary}`, 
+            timestamp: new Date() 
+          }
+        ]);
+      } else if (toolCall.action === 'override_turn') {
+        const { spark_id, entity_id, directive } = toolCall.payload;
+        if (!currentSparkId && !spark_id) {
+          setMessages((prev) => [
+            ...prev,
+            { id: uuid(), role: 'system', content: `⚠️ No active spark. Start a scene first.`, timestamp: new Date() }
+          ]);
+          return;
+        }
+        await sandboxApi.sendOverride(spark_id || currentSparkId!, entity_id, directive);
+        setMessages((prev) => [
+          ...prev,
+          { 
+            id: uuid(), 
+            role: 'system', 
+            content: `✋ **Override injected**: ${entity_id} → "${directive}"`, 
+            timestamp: new Date() 
+          }
+        ]);
+      } else if (toolCall.action === 'adjust_render') {
+        const { subtext_ratio, style_template, pov_type } = toolCall.payload;
+        const response = await fetch('/api/v1/render/adjust', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subtext_ratio, style_template, pov_type })
+        });
+        const data = await response.json();
+        setMessages((prev) => [
+          ...prev,
+          { 
+            id: uuid(), 
+            role: 'system', 
+            content: `🎨 **Render adjusted**: POV=${data.default_render_mixer?.pov_type || 'unchanged'}, Style=${data.default_render_mixer?.style_template || 'unchanged'}, Subtext=${data.default_render_mixer?.subtext_ratio ?? 'unchanged'}`, 
+            timestamp: new Date() 
+          }
+        ]);
+      } else if (toolCall.action === 'create_branch') {
+        const { name, origin_snapshot_id, parent_branch_id } = toolCall.payload;
+        const result = await sandboxApi.createBranch(name, origin_snapshot_id, parent_branch_id);
+        setMessages((prev) => [
+          ...prev,
+          { 
+            id: uuid(), 
+            role: 'system', 
+            content: `🌿 **Branch created**: "${name}" (${(result.branch as { branch_id: string }).branch_id})`, 
+            timestamp: new Date() 
+          }
+        ]);
+      } else if (toolCall.action === 'rollback') {
+        const { snapshot_id } = toolCall.payload;
+        const result = await sandboxApi.rollback(snapshot_id);
+        setMessages((prev) => [
+          ...prev,
+          { 
+            id: uuid(), 
+            role: 'system', 
+            content: `⏪ **Rolled back** to snapshot \`${snapshot_id}\`. Restored ${result.entities_count} entities.`, 
+            timestamp: new Date() 
+          }
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { id: uuid(), role: 'system', content: `⚠️ Unknown action: ${toolCall.action}`, timestamp: new Date() }
+        ]);
       }
     } catch (err) {
       console.error('Tool call failed', err);
@@ -222,17 +316,38 @@ export default function MusePanel() {
           {toolCallData && (
             <div className="w-full rounded-lg bg-grimoire-surface/50 border border-grimoire-border p-3 space-y-2">
               <div className="text-[10px] font-mono text-grimoire-text-muted">
-                {toolCallData.action === 'create_entity' ? 'CREATE ENTITY' : 'START SPARK'}
+                {toolCallData.action === 'create_entity' ? 'CREATE ENTITY' : 
+                 toolCallData.action === 'update_entity' ? 'UPDATE ENTITY' :
+                 toolCallData.action === 'delete_entity' ? 'DELETE ENTITY' :
+                 toolCallData.action === 'query_memory' ? 'QUERY MEMORY' :
+                 toolCallData.action === 'override_turn' ? 'OVERRIDE TURN' :
+                 toolCallData.action === 'adjust_render' ? 'ADJUST RENDER' :
+                 toolCallData.action === 'create_branch' ? 'CREATE BRANCH' :
+                 toolCallData.action === 'rollback' ? 'ROLLBACK' :
+                 'START SPARK'}
               </div>
-              <pre className="text-[10px] text-grimoire-text-muted overflow-x-auto bg-black/20 p-2 rounded">
+              <pre className="text-[10px] text-grimoire-text-muted overflow-x-auto bg-black/20 p-2 rounded max-h-32 overflow-y-auto">
                 {JSON.stringify(toolCallData.payload, null, 2)}
               </pre>
               <button
                 onClick={() => executeToolCall(toolCallData)}
-                className="w-full btn-glow py-1.5 text-[10px] flex items-center justify-center gap-1 mt-2"
+                className={cn(
+                  "w-full py-1.5 text-[10px] flex items-center justify-center gap-1 mt-2",
+                  toolCallData.action === 'delete_entity' || toolCallData.action === 'rollback' ? 'btn-danger' : 'btn-glow'
+                )}
               >
                 <Check className="w-3 h-3" />
-                <span>Confirm {toolCallData.action === 'create_entity' ? 'Creation' : 'Spark'}</span>
+                <span>
+                  {toolCallData.action === 'create_entity' ? 'Create' :
+                   toolCallData.action === 'update_entity' ? 'Update' :
+                   toolCallData.action === 'delete_entity' ? 'Delete' :
+                   toolCallData.action === 'query_memory' ? 'Query' :
+                   toolCallData.action === 'override_turn' ? 'Override' :
+                   toolCallData.action === 'adjust_render' ? 'Adjust' :
+                   toolCallData.action === 'create_branch' ? 'Branch' :
+                   toolCallData.action === 'rollback' ? 'Rollback' :
+                   'Start Spark'}
+                </span>
               </button>
             </div>
           )}

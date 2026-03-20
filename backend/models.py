@@ -116,7 +116,9 @@ class Branch(BaseModel):
     branch_id: str
     name: str
     origin_snapshot_id: Optional[str]
-    is_active: bool
+    parent_branch_id: Optional[str] = None
+    is_active: bool = True
+    created_at: datetime
 
 
 # ==========================================
@@ -241,9 +243,7 @@ class ModelRouting(BaseModel):
     推演层使用低成本快速模型，渲染层使用高质量创意模型。
     """
 
-    maestro_model: str = Field(
-        default="gpt-4", description="Maestro 决策模型 - 需要强推理能力"
-    )
+    maestro_model: str = Field(default="gpt-4", description="Maestro 决策模型 - 需要强推理能力")
     character_model: str = Field(
         default="gpt-3.5-turbo", description="Character 对话模型 - 追求低成本快速响应"
     )

@@ -64,6 +64,21 @@ export const sandboxApi = {
       method: 'POST',
       body: { ir_block_id: irBlockId, final_content_html: finalContentHtml },
     }),
+
+  createBranch: (name: string, originSnapshotId?: string, parentBranchId?: string) =>
+    request<{ branch: unknown; message: string }>('/sandbox/branch', {
+      method: 'POST',
+      body: { name, origin_snapshot_id: originSnapshotId, parent_branch_id: parentBranchId },
+    }),
+
+  listBranches: () =>
+    request<{ branches: unknown[] }>('/sandbox/branches'),
+
+  rollback: (snapshotId: string) =>
+    request<{ snapshot_id: string; branch_id: string; entities_count: number; message: string }>('/sandbox/rollback', {
+      method: 'POST',
+      body: { snapshot_id: snapshotId },
+    }),
 };
 
 // ===========================
@@ -84,6 +99,12 @@ export const grimoireApi = {
 
   deleteEntity: (entityId: string) =>
     request(`/grimoire/entities/${entityId}`, { method: 'DELETE' }),
+
+  queryEntities: (query: string) =>
+    request<{ entities: unknown[]; query: string; count: number }>('/grimoire/entities/query', {
+      method: 'POST',
+      body: { query },
+    }),
 };
 
 // ===========================
@@ -112,6 +133,24 @@ export const storyboardApi = {
 export const settingsApi = {
   get: () => request<{ settings: unknown }>('/settings'),
   update: (data: unknown) => request('/settings', { method: 'PATCH', body: data }),
+};
+
+// ===========================
+// Render API (Camera Controls)
+// ===========================
+export interface RenderMixerSettings {
+  pov_type: 'OMNISCIENT' | 'FIRST_PERSON' | 'CHARACTER_LIMITED';
+  style_template: string;
+  subtext_ratio: number;
+}
+
+export const renderApi = {
+  getSettings: () => request<{ settings: { default_render_mixer: RenderMixerSettings } }>('/settings'),
+  adjust: (params: Partial<RenderMixerSettings>) =>
+    request<{ default_render_mixer: RenderMixerSettings; message: string }>('/render/adjust', {
+      method: 'POST',
+      body: params,
+    }),
 };
 
 // ===========================

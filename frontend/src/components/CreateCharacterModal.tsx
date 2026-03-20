@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Sparkles, Plus, Minus } from 'lucide-react';
-import { cn } from '../lib/utils';
 import { uuid } from '../lib/utils';
 import type { CharacterEntity } from './CharacterCard';
 

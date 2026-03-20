@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware  # Trigger reload
 from contextlib import asynccontextmanager
 
 from backend.database import init_db
-from backend.routers import sandbox, storyboard, grimoire, settings, muse, render
+from backend.routers import sandbox, storyboard, grimoire, settings, muse, render, memory
 
 
 @asynccontextmanager
@@ -36,6 +36,7 @@ app.include_router(grimoire.router, prefix="/api/v1/grimoire", tags=["Grimoire"]
 app.include_router(settings.router, prefix="/api/v1/settings", tags=["Settings"])
 app.include_router(muse.router, prefix="/api/v1/muse", tags=["Muse"])
 app.include_router(render.router, prefix="/api/v1/render", tags=["Render"])
+app.include_router(memory.router, prefix="/api/v1/memory", tags=["Memory"])
 
 
 @app.get("/health")

@@ -60,7 +60,7 @@ class WebSocketManager {
         }
       };
 
-      this.ws.onclose = (event) => {
+      this.ws.onclose = () => {
         this._isConnected = false;
         // Only reconnect if it wasn't a clean, intentional closure
         if (this.ws) {

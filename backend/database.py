@@ -1,10 +1,25 @@
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+
 import aiosqlite
 from loguru import logger
-from typing import AsyncGenerator
-from contextlib import asynccontextmanager
 
 # We store the sqlite file in the local directory for the Genesis MVP
 DB_PATH = "grimoire.sqlite"
+
+# Only import when needed
+SQLITE_VEC_AVAILABLE = None
+
+# Check if sqlite_vec is available
+try:
+    # Don't import at module level to allow graceful degradation
+    import sqlite_vec  # noqa: F401
+
+    SQLITE_VEC_AVAILABLE = True
+    logger.info("sqlite-vec is available")
+except ImportError:
+    SQLITE_VEC_AVAILABLE = False
+    logger.warning("sqlite-vec not available, vector search functionality will be disabled")
 
 
 @asynccontextmanager
@@ -27,8 +42,7 @@ async def get_db_connection() -> AsyncGenerator[aiosqlite.Connection, None]:
         await conn.close()
 
 
-from backend.models import ProjectSettings, LLMApiKeys, DefaultRenderMixer, ModelRouting
-import json
+from backend.models import DefaultRenderMixer, LLMApiKeys, ModelRouting, ProjectSettings
 
 # ... (keep existing code)
 
@@ -38,16 +52,12 @@ async def get_project_settings(conn: aiosqlite.Connection) -> ProjectSettings:
     Retrieves the singleton project settings from the database.
     If not found, initializes with defaults (Occam's Razor).
     """
-    async with conn.execute(
-        "SELECT * FROM settings WHERE id = 'single_row_lock'"
-    ) as cursor:
+    async with conn.execute("SELECT * FROM settings WHERE id = 'single_row_lock'") as cursor:
         row = await cursor.fetchone()
         if row:
             model_routing = None
             if "model_routing_json" in row.keys() and row["model_routing_json"]:
-                model_routing = ModelRouting.model_validate_json(
-                    row["model_routing_json"]
-                )
+                model_routing = ModelRouting.model_validate_json(row["model_routing_json"])
 
             return ProjectSettings(
                 id=row["id"],
@@ -96,6 +106,33 @@ async def init_db() -> None:
     """
     logger.info(f"Initializing SQLite database at {DB_PATH}")
     async with get_db_connection() as conn:
+        # Load sqlite-vec extension if available
+        if SQLITE_VEC_AVAILABLE:
+            try:
+                import sqlite_vec
+
+                await conn.execute("SELECT load_extension(?)", (sqlite_vec.load(conn),))
+                logger.success("SQLite-vec extension loaded successfully")
+
+                # Create memory vectors virtual table if extension is available
+                await conn.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS memory_vectors USING vec0(
+                        id INTEGER PRIMARY KEY,
+                        content_embedding float[384],
+                        entity_id TEXT NOT NULL,
+                        memory_text TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to load sqlite-vec extension or create virtual table: {str(e)}"
+                )
+                logger.warning("Vector search functionality will be disabled")
+        else:
+            logger.info("sqlite-vec not available, skipping vector functionality")
+
         # Table: Entities
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS entities (
@@ -157,25 +194,23 @@ async def init_db() -> None:
             await conn.execute(
                 "ALTER TABLE settings ADD COLUMN llm_model TEXT NOT NULL DEFAULT 'gpt-4'"
             )
-        except:
+        except aiosqlite.Error:
             pass
         try:
             await conn.execute(
                 "ALTER TABLE settings ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 12"
             )
-        except:
+        except aiosqlite.Error:
             pass
         try:
             await conn.execute(
                 "ALTER TABLE settings ADD COLUMN tension_threshold REAL NOT NULL DEFAULT 0.8"
             )
-        except:
+        except aiosqlite.Error:
             pass
         try:
-            await conn.execute(
-                "ALTER TABLE settings ADD COLUMN model_routing_json TEXT"
-            )
-        except:
+            await conn.execute("ALTER TABLE settings ADD COLUMN model_routing_json TEXT")
+        except aiosqlite.Error:
             pass
 
         # Table: Scratchpad Checkpoints (for crash recovery)
@@ -185,6 +220,30 @@ async def init_db() -> None:
                 turn_logs_json TEXT NOT NULL,
                 pending_facts_json TEXT NOT NULL,
                 current_turn INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # Table: Branches (for create_branch feature - V2.0)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS branches (
+                branch_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                origin_snapshot_id TEXT,
+                parent_branch_id TEXT,
+                is_active BOOLEAN NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # Table: Snapshots (for rollback feature - V2.0)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS snapshots (
+                snapshot_id TEXT PRIMARY KEY,
+                branch_id TEXT NOT NULL,
+                parent_snapshot_id TEXT,
+                triggering_block_id TEXT,
+                grimoire_state_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )
         """)

@@ -4,6 +4,8 @@ import { Map, Plus, ChevronRight, BookOpen, FileText, Loader2 } from 'lucide-rea
 import { storyboardApi } from '../lib/api';
 import { cn } from '../lib/utils';
 import { uuid } from '../lib/utils';
+import RenderMixer from '../components/RenderMixer';
+import Monitor from '../components/Monitor';
 
 interface StoryNodeData {
   node_id: string;
@@ -59,7 +61,6 @@ export default function StoryboardPage() {
     }
   };
 
-  const volumes = nodes.filter((n) => n.type === 'VOLUME');
   const chapters = nodes.filter((n) => n.type === 'CHAPTER');
 
   return (
@@ -76,10 +77,13 @@ export default function StoryboardPage() {
             </span>
           )}
         </div>
-        <button onClick={() => setIsCreating(true)} className="btn-glow flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          <span>New Chapter</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setIsCreating(true)} className="btn-glow flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            <span>New Chapter</span>
+          </button>
+          <RenderMixer />
+        </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden">
@@ -154,39 +158,45 @@ export default function StoryboardPage() {
         </div>
 
         {/* Right: Content Area */}
-        <div className="flex-1 flex items-center justify-center p-6">
-          {selectedNode ? (
-            <motion.div
-              key={selectedNode.node_id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="max-w-2xl w-full space-y-6"
-            >
-              <div>
-                <p className="text-[10px] uppercase tracking-widest text-grimoire-text-muted mb-1">Chapter</p>
-                <h3 className="text-2xl font-serif font-semibold text-grimoire-text">{selectedNode.title}</h3>
-                {selectedNode.summary && (
-                  <p className="text-sm text-grimoire-text-dim mt-2">{selectedNode.summary}</p>
-                )}
-              </div>
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex items-center justify-center p-6 overflow-y-auto">
+            {selectedNode ? (
+              <motion.div
+                key={selectedNode.node_id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="max-w-2xl w-full space-y-6"
+              >
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-grimoire-text-muted mb-1">Chapter</p>
+                  <h3 className="text-2xl font-serif font-semibold text-grimoire-text">{selectedNode.title}</h3>
+                  {selectedNode.summary && (
+                    <p className="text-sm text-grimoire-text-dim mt-2">{selectedNode.summary}</p>
+                  )}
+                </div>
 
-              <div className="glass-card p-6">
-                <p className="text-sm text-grimoire-text-muted text-center">
-                  IR Blocks for this chapter will appear here after the Maestro generates them.
+                <div className="glass-card p-6">
+                  <p className="text-sm text-grimoire-text-muted text-center">
+                    IR Blocks for this chapter will appear here after the Maestro generates them.
+                  </p>
+                </div>
+              </motion.div>
+            ) : (
+              <div className="text-center space-y-4 animate-fade-in">
+                <div className="w-16 h-16 mx-auto rounded-2xl bg-grimoire-card border border-grimoire-border flex items-center justify-center">
+                  <Map className="w-8 h-8 text-grimoire-text-muted" />
+                </div>
+                <h3 className="text-lg font-semibold text-grimoire-text">Select a Chapter</h3>
+                <p className="text-sm text-grimoire-text-muted max-w-sm">
+                  Choose a chapter from the sidebar to view its story blocks, or create a new one to begin writing.
                 </p>
               </div>
-            </motion.div>
-          ) : (
-            <div className="text-center space-y-4 animate-fade-in">
-              <div className="w-16 h-16 mx-auto rounded-2xl bg-grimoire-card border border-grimoire-border flex items-center justify-center">
-                <Map className="w-8 h-8 text-grimoire-text-muted" />
-              </div>
-              <h3 className="text-lg font-semibold text-grimoire-text">Select a Chapter</h3>
-              <p className="text-sm text-grimoire-text-muted max-w-sm">
-                Choose a chapter from the sidebar to view its story blocks, or create a new one to begin writing.
-              </p>
-            </div>
-          )}
+            )}
+          </div>
+
+          <div className="p-4 flex-shrink-0 border-t border-grimoire-border/50">
+            <Monitor />
+          </div>
         </div>
       </div>
     </div>
