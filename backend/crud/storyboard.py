@@ -1,14 +1,15 @@
-from typing import List, Optional
-from backend.models import (
-    StoryNode,
-    StoryNodeType,
-    StoryIRBlock,
-    SceneContext,
-    ActionItem,
-)
-from backend.database import get_db_connection
 import json
 from datetime import datetime
+from typing import List, Optional
+
+from backend.database import get_db_connection
+from backend.models import (
+    ActionItem,
+    SceneContext,
+    StoryIRBlock,
+    StoryNode,
+    StoryNodeType,
+)
 
 # ==========================================
 # StoryNode CRUD
@@ -121,9 +122,7 @@ async def list_story_ir_blocks(chapter_id: str) -> List[StoryIRBlock]:
                     lexorank=row["lexorank"],
                     summary=row["summary"],
                     involved_entities=json.loads(row["involved_entities_json"]),
-                    scene_context=SceneContext.model_validate_json(
-                        row["scene_context_json"]
-                    ),
+                    scene_context=SceneContext.model_validate_json(row["scene_context_json"]),
                     action_sequence=action_sequence,
                     content_html=row["content_html"],
                     created_at=datetime.fromisoformat(row["created_at"]),
@@ -135,9 +134,7 @@ async def list_story_ir_blocks(chapter_id: str) -> List[StoryIRBlock]:
 async def get_story_ir_block(block_id: str) -> Optional[StoryIRBlock]:
     """Retrieves a single IR block by ID."""
     async with get_db_connection() as conn:
-        cursor = await conn.execute(
-            "SELECT * FROM story_ir_blocks WHERE block_id = ?", (block_id,)
-        )
+        cursor = await conn.execute("SELECT * FROM story_ir_blocks WHERE block_id = ?", (block_id,))
         row = await cursor.fetchone()
         if not row:
             return None

@@ -1,23 +1,23 @@
-import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
 
+import pytest
+
+from backend.crud.scribe import ScribeApplier
 from backend.models import (
-    Entity,
-    EntityType,
+    ActionItem,
     BaseAttributes,
     CurrentStatus,
-    StoryIRBlock,
-    SceneContext,
-    ActionItem,
-    ScribeExtractionResult,
     DeltaUpdate,
-    ScribeMemoryDelta,
-    InventoryChanges,
+    Entity,
+    EntityType,
     GrimoireSnapshot,
     GrimoireStateJSON,
+    InventoryChanges,
+    SceneContext,
+    ScribeExtractionResult,
+    ScribeMemoryDelta,
+    StoryIRBlock,
 )
-from backend.crud.scribe import ScribeApplier
 
 
 class TestScribeExtraction:
@@ -70,9 +70,7 @@ class TestScribeExtraction:
         """Test: Scribe extracts inventory changes from IR action."""
         from backend.crud.scribe import ScribeExtractor
 
-        result = ScribeExtractor.extract_from_ir(
-            ir_block=sample_ir_block, entities=[sample_entity]
-        )
+        result = ScribeExtractor.extract_from_ir(ir_block=sample_ir_block, entities=[sample_entity])
 
         assert result is not None
         assert len(result.updates) > 0
@@ -86,9 +84,7 @@ class TestScribeExtraction:
         """Test: Scribe extracts health changes from action description."""
         from backend.crud.scribe import ScribeExtractor
 
-        result = ScribeExtractor.extract_from_ir(
-            ir_block=sample_ir_block, entities=[sample_entity]
-        )
+        result = ScribeExtractor.extract_from_ir(ir_block=sample_ir_block, entities=[sample_entity])
 
         delta = result.updates[0].delta
         assert delta.health_delta is not None
@@ -176,15 +172,11 @@ class TestScribeExtraction:
 
         sample_ir_block.content_html = "<p>一些渲染后的文字...</p>"
 
-        result = ScribeExtractor.extract_from_ir(
-            ir_block=sample_ir_block, entities=[sample_entity]
-        )
+        result = ScribeExtractor.extract_from_ir(ir_block=sample_ir_block, entities=[sample_entity])
 
         assert result is not None
         for update in result.updates:
-            for mem in (
-                [update.delta.memory_to_append] if update.delta.memory_to_append else []
-            ):
+            for mem in [update.delta.memory_to_append] if update.delta.memory_to_append else []:
                 assert "<p>" not in mem
 
     def test_multiple_deltas_applied_sequentially(self, sample_entity):

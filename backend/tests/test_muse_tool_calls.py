@@ -8,26 +8,25 @@ Per SPEC §5.4:
 - query_memory: {query}
 """
 
+import json
 import os
+import re
+from datetime import datetime
+
 import pytest
 import pytest_asyncio
-import re
-import json
-from datetime import datetime
-from unittest.mock import AsyncMock, patch, MagicMock
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
-from backend.database import DB_PATH, init_db, get_db_connection
-from backend.main import app
-from backend.models import Entity, EntityType, BaseAttributes, CurrentStatus
 from backend.crud.entities import (
     create_entity,
     get_entity,
+    list_entities,
     soft_delete_entity,
     update_entity,
-    list_entities,
 )
-
+from backend.database import DB_PATH, init_db
+from backend.main import app
+from backend.models import BaseAttributes, CurrentStatus, Entity, EntityType
 
 # ==========================================
 # Test Fixtures
@@ -531,6 +530,7 @@ class TestMuseLLMIntegration:
         """Test that LLM can generate valid update_entity tool call."""
         import os
         from pathlib import Path
+
         from dotenv import load_dotenv
 
         load_dotenv(Path(__file__).parent.parent.parent / ".env")
@@ -591,6 +591,7 @@ class TestMuseLLMIntegration:
         """Test that LLM can generate valid query_memory tool call."""
         import os
         from pathlib import Path
+
         from dotenv import load_dotenv
 
         load_dotenv(Path(__file__).parent.parent.parent / ".env")
@@ -641,6 +642,7 @@ class TestMuseLLMIntegration:
         """Test that LLM can generate valid delete_entity tool call."""
         import os
         from pathlib import Path
+
         from dotenv import load_dotenv
 
         load_dotenv(Path(__file__).parent.parent.parent / ".env")

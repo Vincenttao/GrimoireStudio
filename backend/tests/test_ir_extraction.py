@@ -1,8 +1,8 @@
-import pytest
-from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
-from backend.models import StoryIRBlock, SceneContext, ActionItem, CharacterAction
+import pytest
+
+from backend.models import CharacterAction, StoryIRBlock
 
 
 class TestIRExtraction:
@@ -16,9 +16,7 @@ class TestIRExtraction:
                 action="拆开信件，扫视内容后冷笑一声",
                 dialogue="呵，有意思。三天？那就三天吧。",
             ),
-            CharacterAction(
-                intent="观察对方反应", action="从阴影中注视，不做声响", dialogue=""
-            ),
+            CharacterAction(intent="观察对方反应", action="从阴影中注视，不做声响", dialogue=""),
             CharacterAction(
                 intent="试探对方底线",
                 action="向前迈一步，语气加重",
@@ -27,15 +25,11 @@ class TestIRExtraction:
         ]
 
     @pytest.mark.asyncio
-    async def test_extract_ir_from_turn_logs_returns_valid_block(
-        self, sample_turn_logs
-    ):
+    async def test_extract_ir_from_turn_logs_returns_valid_block(self, sample_turn_logs):
         """Test: IR extraction returns a valid StoryIRBlock."""
         from backend.services.llm_client import llm_client
 
-        with patch.object(
-            llm_client, "_generate_structured", new_callable=AsyncMock
-        ) as mock:
+        with patch.object(llm_client, "_generate_structured", new_callable=AsyncMock) as mock:
             mock.return_value = {
                 "block_id": "block_001",
                 "chapter_id": "chap_001",
@@ -102,7 +96,7 @@ class TestIRExtraction:
     @pytest.mark.asyncio
     async def test_extract_ir_with_empty_logs_raises_error(self):
         """Test: Empty turn logs raises validation error."""
-        from backend.services.llm_client import llm_client, LLMError
+        from backend.services.llm_client import LLMError, llm_client
 
         with pytest.raises(LLMError):
             await llm_client.extract_story_ir(

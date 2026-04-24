@@ -1,9 +1,10 @@
-from fastapi import FastAPI, WebSocket
-from fastapi.middleware.cors import CORSMiddleware  # Trigger reload
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware  # Trigger reload
+
 from backend.database import init_db
-from backend.routers import sandbox, storyboard, grimoire, settings, muse, render, memory
+from backend.routers import grimoire, memory, muse, render, sandbox, settings, storyboard
 
 
 @asynccontextmanager

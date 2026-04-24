@@ -1,13 +1,19 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-from typing import Optional
-from loguru import logger
+from typing import List, Optional
 
-from backend.models import RenderRequest, POVType, DefaultRenderMixer
-from backend.crud.storyboard import get_story_ir_block, update_ir_block_html
+from fastapi import APIRouter, HTTPException
+from loguru import logger
+from pydantic import BaseModel, Field
+
 from backend.crud.entities import get_entity
-from backend.services.camera_client import CameraClient, CameraError
+from backend.crud.storyboard import get_story_ir_block, update_ir_block_html
 from backend.database import get_db_connection, get_project_settings
+from backend.models import (
+    PLATFORM_PRESETS,
+    DefaultRenderMixer,
+    PlatformProfile,
+    POVType,
+)
+from backend.services.camera_client import CameraClient, CameraError
 
 router = APIRouter()
 
@@ -18,12 +24,20 @@ class RenderRequestInput(BaseModel):
     pov_character_id: Optional[str] = None
     style_template: str = "Standard"
     subtext_ratio: float = 0.5
+    # V1.1 新增
+    target_char_count: Optional[int] = Field(default=None, ge=500, le=20000)
+    max_sent_len: Optional[int] = Field(default=None, ge=10, le=100)
+    tolerance_ratio: float = Field(default=0.10, ge=0.0, le=0.5)
+    enable_hook_guard: bool = Field(default=True)
 
 
 class RenderResponse(BaseModel):
     block_id: str
     status: str
     content_html: Optional[str] = None
+    actual_char_count: Optional[int] = None
+    padding_warnings: List[str] = Field(default_factory=list)
+    hook_check_reason: Optional[str] = None
     message: str
 
 
@@ -51,16 +65,14 @@ async def render_block(request: RenderRequestInput):
     POST /api/v1/render
     Submit a render request for a Story IR Block.
 
-    Camera Agent will generate literary prose based on the IR and render parameters.
+    V1.1: 支持 target_char_count / max_sent_len 字数约束循环和 Ending Hook Guard。
     """
     logger.info(f"Render request received for block: {request.ir_block_id}")
 
-    # 1. Fetch the IR block
     ir_block = await get_story_ir_block(request.ir_block_id)
     if not ir_block:
         raise HTTPException(status_code=404, detail=f"IR Block not found: {request.ir_block_id}")
 
-    # 2. Fetch POV character if needed
     pov_character = None
     if request.pov_character_id:
         pov_character = await get_entity(request.pov_character_id)
@@ -70,24 +82,66 @@ async def render_block(request: RenderRequestInput):
                 detail=f"POV Character not found: {request.pov_character_id}",
             )
 
-    # 3. Call Camera to render
     camera = get_camera_client()
     try:
-        content_html = await camera.render(
-            ir_block=ir_block,
-            pov_type=request.pov_type,
-            style_template=request.style_template,
-            subtext_ratio=request.subtext_ratio,
-            pov_character=pov_character,
-        )
+        actual_count: Optional[int] = None
+        padding_warnings: List[str] = []
 
-        # 4. Update IR block with rendered content
+        if request.target_char_count:
+            (
+                content_html,
+                actual_count,
+                padding_warnings,
+            ) = await camera.render_with_char_count_enforcement(
+                ir_block=ir_block,
+                pov_type=request.pov_type,
+                style_template=request.style_template,
+                subtext_ratio=request.subtext_ratio,
+                target_char_count=request.target_char_count,
+                pov_character=pov_character,
+                max_sent_len=request.max_sent_len,
+                tolerance_ratio=request.tolerance_ratio,
+            )
+        else:
+            content_html = await camera.render(
+                ir_block=ir_block,
+                pov_type=request.pov_type,
+                style_template=request.style_template,
+                subtext_ratio=request.subtext_ratio,
+                pov_character=pov_character,
+                max_sent_len=request.max_sent_len,
+            )
+
+        # V1.1: Ending Hook Guard (degrade gracefully on error to avoid blocking the 90% happy path)
+        hook_reason: Optional[str] = None
+        if request.enable_hook_guard:
+            try:
+                hook_result = await camera.check_ending_hook(content_html)
+                if hasattr(hook_result, "reason") and isinstance(hook_result.reason, str):
+                    hook_reason = hook_result.reason
+                if hasattr(hook_result, "has_hook") and hook_result.has_hook is False:
+                    logger.info(f"[HookGuard] Triggered refinement: {hook_reason}")
+                    content_html = await camera.refine_ending(
+                        html=content_html,
+                        ir_block=ir_block,
+                        pov_type=request.pov_type,
+                        style_template=request.style_template,
+                        subtext_ratio=request.subtext_ratio,
+                        pov_character=pov_character,
+                    )
+            except Exception as hook_err:
+                logger.warning(f"[HookGuard] Skipped due to error: {hook_err}")
+                hook_reason = None
+
         await update_ir_block_html(request.ir_block_id, content_html)
 
         return RenderResponse(
             block_id=request.ir_block_id,
             status="completed",
             content_html=content_html,
+            actual_char_count=actual_count,
+            padding_warnings=padding_warnings,
+            hook_check_reason=hook_reason,
             message="Render completed successfully.",
         )
 
@@ -223,3 +277,65 @@ async def adjust_render_params(request: AdjustRenderRequest):
             default_render_mixer=settings.default_render_mixer.model_dump(),
             message="Render parameters updated.",
         )
+
+
+# ==========================================
+# V1.1: 平台预设切换
+# ==========================================
+
+
+class SwitchPlatformRequest(BaseModel):
+    platform: PlatformProfile
+
+
+class SwitchPlatformResponse(BaseModel):
+    platform: PlatformProfile
+    default_render_mixer: dict
+    default_target_char_count: int
+    default_max_sent_len: int
+    message: str
+
+
+@router.post("/switch_platform", response_model=SwitchPlatformResponse)
+async def switch_platform_profile(request: SwitchPlatformRequest):
+    """
+    POST /api/v1/render/switch_platform
+    一键切换目标网文平台，同步更新 Render Mixer 默认值、字数、句长预设。
+    """
+    preset = PLATFORM_PRESETS[request.platform]
+    async with get_db_connection() as conn:
+        settings = await get_project_settings(conn)
+
+        settings.default_render_mixer = DefaultRenderMixer(
+            pov_type=settings.default_render_mixer.pov_type,
+            style_template=preset["style_template"],
+            subtext_ratio=preset["subtext_ratio"],
+        )
+        settings.target_platform = request.platform
+        settings.default_target_char_count = preset["default_char_count"]
+        settings.default_max_sent_len = preset["max_sent_len"]
+
+        await conn.execute(
+            """UPDATE settings SET
+                default_render_mixer_json = ?,
+                target_platform = ?,
+                default_target_char_count = ?,
+                default_max_sent_len = ?
+               WHERE id = ?""",
+            (
+                settings.default_render_mixer.model_dump_json(),
+                settings.target_platform.value,
+                settings.default_target_char_count,
+                settings.default_max_sent_len,
+                "single_row_lock",
+            ),
+        )
+        await conn.commit()
+
+    return SwitchPlatformResponse(
+        platform=request.platform,
+        default_render_mixer=settings.default_render_mixer.model_dump(),
+        default_target_char_count=settings.default_target_char_count,
+        default_max_sent_len=settings.default_max_sent_len,
+        message=f"已切换到平台预设: {request.platform.value}",
+    )

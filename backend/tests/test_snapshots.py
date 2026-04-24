@@ -4,25 +4,25 @@ Per PRD §3.3 - Rollback to snapshot.
 """
 
 import os
-import pytest
-import pytest_asyncio
 from datetime import datetime
 
-from backend.database import DB_PATH, init_db, get_db_connection
+import pytest
+import pytest_asyncio
+
+from backend.crud.branches import create_branch
 from backend.crud.snapshots import (
     create_snapshot,
-    get_snapshot,
     get_latest_snapshot,
+    get_snapshot,
     list_snapshots_by_branch,
 )
-from backend.crud.branches import create_branch
+from backend.database import DB_PATH, init_db
 from backend.models import (
-    GrimoireSnapshot,
-    GrimoireStateJSON,
-    Entity,
-    EntityType,
     BaseAttributes,
     CurrentStatus,
+    Entity,
+    EntityType,
+    GrimoireStateJSON,
 )
 
 

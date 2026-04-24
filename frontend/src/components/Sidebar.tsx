@@ -9,9 +9,11 @@ import {
   Zap,
   ChevronLeft,
   ChevronRight,
+  Flame,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { wsManager, type SandboxState } from '../lib/ws';
+import { settingsApi } from '../lib/api';
 
 interface NavItem {
   icon: React.ElementType;
@@ -32,6 +34,7 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [sandboxState, setSandboxState] = useState<SandboxState>('IDLE');
   const [wsConnected, setWsConnected] = useState(false);
+  const [streak, setStreak] = useState(0);
 
   useEffect(() => {
     const unsubState = wsManager.on('STATE_CHANGE', (data) => {
@@ -40,9 +43,30 @@ export default function Sidebar() {
     const unsubConn = wsManager.on('CONNECTION_STATUS', (data) => {
       setWsConnected(data.connected as boolean);
     });
+    const unsubCommit = wsManager.on('COMMIT_COMPLETE', (data) => {
+      const d = data as Record<string, unknown>;
+      if (typeof d.daily_streak_count === 'number') {
+        setStreak(d.daily_streak_count);
+      }
+    });
+
+    // Initial fetch
+    (async () => {
+      try {
+        const r = await settingsApi.get();
+        const s = r.settings as Record<string, unknown>;
+        if (typeof s.daily_streak_count === 'number') {
+          setStreak(s.daily_streak_count);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
     return () => {
       unsubState();
       unsubConn();
+      unsubCommit();
     };
   }, []);
 
@@ -99,6 +123,29 @@ export default function Sidebar() {
           )}
         </div>
       </div>
+
+      {/* V1.1: Daily streak */}
+      {streak > 0 && (
+        <div
+          className={cn(
+            'mx-3 mb-2 rounded-lg border border-grimoire-gold/30 bg-grimoire-gold/5 transition-all',
+            collapsed ? 'p-2 flex items-center justify-center' : 'px-3 py-2'
+          )}
+          title={`连续日更 ${streak} 天`}
+        >
+          <div className="flex items-center gap-2">
+            <Flame className="w-4 h-4 text-grimoire-gold flex-shrink-0" />
+            {!collapsed && (
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-widest text-grimoire-text-muted">
+                  连续日更
+                </p>
+                <p className="text-xs font-mono text-grimoire-gold">{streak} 天 🔥</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className="flex-1 px-2 py-2 space-y-1">

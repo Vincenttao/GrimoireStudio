@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Save, Loader2, Check, AlertCircle } from 'lucide-react';
-import { settingsApi } from '../lib/api';
+import { Settings, Save, Loader2, Check, AlertCircle, Flame } from 'lucide-react';
+import { settingsApi, PLATFORM_LABELS, type PlatformProfile } from '../lib/api';
 
 interface ProjectSettings {
   id?: string;
@@ -19,6 +19,14 @@ interface ProjectSettings {
     style_template: string;
     subtext_ratio: number;
   };
+  // V1.1
+  target_platform: PlatformProfile;
+  default_target_char_count: number;
+  default_max_sent_len: number;
+  ending_hook_guard_enabled: boolean;
+  padding_detector_enabled: boolean;
+  daily_streak_count: number;
+  last_commit_at: string | null;
 }
 
 const DEFAULT_SETTINGS: ProjectSettings = {
@@ -33,10 +41,26 @@ const DEFAULT_SETTINGS: ProjectSettings = {
   tension_threshold: 0.8,
   default_render_mixer: {
     pov_type: 'OMNISCIENT',
-    style_template: 'Standard',
-    subtext_ratio: 0.3,
+    style_template: '热血爽文',
+    subtext_ratio: 0.2,
   },
+  target_platform: 'QIDIAN',
+  default_target_char_count: 3000,
+  default_max_sent_len: 30,
+  ending_hook_guard_enabled: true,
+  padding_detector_enabled: true,
+  daily_streak_count: 0,
+  last_commit_at: null,
 };
+
+const PLATFORM_OPTIONS: PlatformProfile[] = [
+  'QIDIAN',
+  'FANQIE',
+  'JINJIANG',
+  'ZONGHENG',
+  'QIMAO',
+  'CUSTOM',
+];
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<ProjectSettings>(DEFAULT_SETTINGS);
@@ -212,6 +236,127 @@ export default function SettingsPage() {
                 <p className="text-[10px] text-grimoire-text-muted mt-1">
                   自定义 OpenAI 兼容端点（阿里云、DeepSeek 等）。留空则使用供应商默认地址
                 </p>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* V1.1: 网文作坊参数 */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="glass-card p-6 space-y-4"
+          >
+            <h3 className="text-base font-semibold flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-grimoire-gold" />
+              网文作坊参数 (V1.1)
+            </h3>
+
+            {/* 连胜显示 */}
+            {settings.daily_streak_count > 0 && (
+              <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-grimoire-gold/5 border border-grimoire-gold/30">
+                <Flame className="w-5 h-5 text-grimoire-gold" />
+                <div>
+                  <p className="text-xs text-grimoire-text-muted">连续日更</p>
+                  <p className="text-lg font-semibold text-grimoire-gold">
+                    {settings.daily_streak_count} 天 🔥
+                  </p>
+                </div>
+                {settings.last_commit_at && (
+                  <div className="ml-auto text-right">
+                    <p className="text-[10px] text-grimoire-text-muted">上次 Commit</p>
+                    <p className="text-xs text-grimoire-text">
+                      {new Date(settings.last_commit_at).toLocaleString()}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-grimoire-text-muted uppercase tracking-wider mb-1.5 block">
+                  目标平台
+                </label>
+                <select
+                  className="input-dark"
+                  value={settings.target_platform}
+                  onChange={(e) =>
+                    updateRootField('target_platform', e.target.value as PlatformProfile)
+                  }
+                >
+                  {PLATFORM_OPTIONS.map((p) => (
+                    <option key={p} value={p}>
+                      {PLATFORM_LABELS[p]}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-grimoire-text-muted mt-1">
+                  切换后 Render Mixer 默认值会跟着平台走
+                </p>
+              </div>
+              <div>
+                <label className="text-xs text-grimoire-text-muted uppercase tracking-wider mb-1.5 block">
+                  默认章节字数
+                </label>
+                <input
+                  type="number"
+                  className="input-dark"
+                  value={settings.default_target_char_count}
+                  onChange={(e) =>
+                    updateRootField(
+                      'default_target_char_count',
+                      parseInt(e.target.value) || 3000
+                    )
+                  }
+                  min={500}
+                  max={20000}
+                  step={100}
+                />
+                <p className="text-[10px] text-grimoire-text-muted mt-1">Camera 渲染硬约束 ±10%</p>
+              </div>
+              <div>
+                <label className="text-xs text-grimoire-text-muted uppercase tracking-wider mb-1.5 block">
+                  默认最大句长
+                </label>
+                <input
+                  type="number"
+                  className="input-dark"
+                  value={settings.default_max_sent_len}
+                  onChange={(e) =>
+                    updateRootField('default_max_sent_len', parseInt(e.target.value) || 30)
+                  }
+                  min={10}
+                  max={100}
+                />
+                <p className="text-[10px] text-grimoire-text-muted mt-1">
+                  番茄/七猫类短句平台用 18-20
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-grimoire-text-muted uppercase tracking-wider">
+                  渲染守卫
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.ending_hook_guard_enabled}
+                    onChange={(e) =>
+                      updateRootField('ending_hook_guard_enabled', e.target.checked)
+                    }
+                  />
+                  <span className="text-xs">章末钩子守卫</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.padding_detector_enabled}
+                    onChange={(e) =>
+                      updateRootField('padding_detector_enabled', e.target.checked)
+                    }
+                  />
+                  <span className="text-xs">水字数检测</span>
+                </label>
               </div>
             </div>
           </motion.div>

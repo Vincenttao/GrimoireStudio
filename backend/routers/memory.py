@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-from typing import Optional, List
-from loguru import logger
+from typing import List, Optional
 
-from backend.crud.memory import insert_memory, search_memories, delete_memories_by_entity
+from fastapi import APIRouter, HTTPException
+from loguru import logger
+from pydantic import BaseModel, Field
+
+from backend.crud.memory import delete_memories_by_entity, insert_memory, search_memories
 
 router = APIRouter()
 

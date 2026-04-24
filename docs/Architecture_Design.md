@@ -1,9 +1,17 @@
 # 🏗️ Genesis Engine: 技术架构设计文档 (Technical Architecture Design)
 
-**版本:** v1.0 Draft
+**版本:** v2.0 (Web Novel Workshop Edition)
 **目标读者:** 系统架构师、后端研发、前端研发
-**前置文档:** PRD_Genesis.md
-**后续文档:** SPEC.md (将包含具体的 JSON Schema 和 API 契约)
+**前置文档:** PRD_Genesis.md, USER_PERSONA.md
+**后续文档:** SPEC.md (具体的 JSON Schema 和 API 契约)
+
+**V2.0 主要架构变更:**
+1. StoryNode 层级 **Chapter → Scene → IRBlock**（原为 Chapter → IRBlock，向下兼容）
+2. Grimoire 引入 **SoftPatch 软层 delta** 机制，支持作者手动事实修订
+3. Scribe 新增 **VoiceSignature 规则检查**（grep 级，无 LLM 消耗）
+4. Maestro 判据从"张力评分"换为 **beat_type 专项判完成**
+5. Camera 新增**字数硬约束循环** + **Ending Hook Guard**
+6. **Scratchpad 持久化**到 `scratchpad.jsonl`，支持进程崩溃恢复
 
 本说明书作为 PRD 向 SPEC 过渡的中间文档，旨在从全局视角拉齐研发团队对 Genesis Engine 核心技术栈、逻辑分层、关键数据流转及并发控制的理解。
 
@@ -64,7 +72,24 @@ Genesis Engine 采用经典的三层物理隔离架构：
 
 *(注：原设计的史官 Scribe 降维为普通的 `Async Background Task` 异步提取函数，不再作为具备独立心智的 Agent 存在，进一步减少系统并发实体。)*
 
-### 2.4 记忆与持久化层 (Snapshot Chain + 单体 SQLite)
+### 2.3.5 Chapter → Scene → IRBlock 三级层次 (V2.0 新增)
+
+V1.0 假设一章一场，但网文章节常有 2-3 个场景切换（日常/冲突/钩子），单 IRBlock 撑不住。
+
+**新结构：**
+```
+Chapter (StoryNode: type="chapter", target_char_count=3000)
+├── Scene 1 (lexorank: "aa", beat_type=DAILY_SLICE) → IRBlock
+├── Scene 2 (lexorank: "am", beat_type=SHOW_OFF_FACE_SLAP) → IRBlock
+└── Scene 3 (lexorank: "az", beat_type=SUSPENSE_SETUP) → IRBlock
+```
+
+- 每个 Scene 是独立 Spark + 独立推演闭环，有自己的 beat_type。
+- Camera 渲染时可单 Scene 或 Chapter 级 Render All（拼接所有 Scene IR 一次性渲染，文风连贯）。
+- target_char_count 在 Chapter 层约束，Camera 按各 Scene 的 action 重量分配字数。
+- **向下兼容**：V1.0 老项目的 Chapter 自动挂 1 个 Scene（迁移脚本）。
+
+### 2.4 记忆与持久化层 (Snapshot Chain + 单体 SQLite + 🆕软层 Delta)
 为践行极简 MVP 架构，兼具“时光倒流（Time Travel）”与避免过度设计的“事件图谱计算”，系统采用极其优雅的**单一文件架构**：
 *   **关系型主库 (SQLite 独尊):** 整个项目的所有大纲、设定、正文全部封装为**单个 `.sqlite` 文件**，支持如同 `.psd` 般的本地项目文件级管理与分享。(注：未来可引入 `Litestream` 或 `cr-sqlite(CRDT)` 以天然支持多设备/云盘无缝同步，V1.0 暂不实现)。
 *   **不可变快照链 (Snapshot Chain):** 放弃复杂的 Event Sourcing 及 DAG 实时物化视图，采用 Git 式的线性快照回退模型。
@@ -72,6 +97,32 @@ Genesis Engine 采用经典的三层物理隔离架构：
     *   **固化落盘**: 用户点击 `Commit` 时，系统直接对当前完整的 Grimoire 状态拍一个 JSON 快照存入 SQLite，指向前一个快照。
     *   **分支与回退**: 回退就是读取上一条 `Snapshot JSON`：分支就是在某条 `Snapshot` 上横生一条新 `branch_id` 数据流。彻底免去从零回放重算的计算风暴。
 *   *(注：向量 RAG 及 `sqlite-vec` 插件在 V1.0 的短篇场景中为无效冗余，已下放至 V2.0/V3.0 中长篇处理阶段。V1.0 的记忆检索引擎纯粹靠结构化查询与滑动黑板。)*
+
+**🆕 软层 Delta (SoftPatch) — V1.1 新增**
+
+问题：作者读完一章想改一句话事实（"金额 3000 两改 300 两"）。V1.0 只能弃掉整段重抽 Spark，严重打击日更节奏。
+
+解法：**在当前快照指针上挂 delta，不改历史快照：**
+```
+Snapshot[N]  (immutable, 快照链)
+    ↓ current_state 指针
+SoftPatch[a] + SoftPatch[b] + SoftPatch[c]  (pending, 可撤销)
+    ↓ 下一次 Commit 时合并
+Snapshot[N+1]  (合并后的新 immutable 快照)
+```
+
+- Grimoire 读操作：先读当前快照，再 overlay 所有 pending SoftPatch。
+- Commit 时：pending SoftPatch 合并进新快照，打标 `merged_into_snapshot_id`。
+- 合并后不可再撤销（符合快照链不可变性）。
+- Schema 详见 SPEC.md §1.13。
+
+**🆕 Scratchpad 持久化 — V1.1 必需**
+
+V1.0 的 Scratchpad 仅挂 FastAPI 进程内存，WSL/Uvicorn 一崩即丢。
+
+新机制：Turn Log 追加到 `scratchpad.jsonl`（与 `grimoire.sqlite` 同目录）。启动时扫描未 `COMMITTED` / `INTERRUPTED` 的 trace，UI 提示恢复。
+
+这条和"推演时不允许无限堆叠 token"并不冲突 — 滑动窗口约束的是 LLM 上下文长度，与磁盘日志无关。
 
 ---
 

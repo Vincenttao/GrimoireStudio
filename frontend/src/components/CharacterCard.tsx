@@ -1,6 +1,8 @@
 import { motion } from 'framer-motion';
 import { Trash2, Edit3, Heart, Package, Brain } from 'lucide-react';
 
+import type { VoiceSignature } from '../lib/api';
+
 export interface CharacterEntity {
   entity_id: string;
   type: string;
@@ -17,6 +19,7 @@ export interface CharacterEntity {
     relationships: Record<string, string>;
     recent_memory_summary: string[];
   };
+  voice_signature?: VoiceSignature | null;
   is_deleted: boolean;
   created_at: string;
   updated_at: string;

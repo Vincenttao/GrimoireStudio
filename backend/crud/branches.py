@@ -4,11 +4,10 @@ Per PRD §3.3 - Branching Tree UI with lazy snapshot.
 """
 
 from datetime import datetime
-from typing import Optional, List
-import aiosqlite
+from typing import List, Optional
 
-from backend.models import Branch
 from backend.database import get_db_connection
+from backend.models import Branch
 
 
 async def create_branch(

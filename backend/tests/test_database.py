@@ -1,6 +1,9 @@
-import pytest
 import os
-from backend.database import get_db_connection, init_db, DB_PATH
+
+import pytest
+
+from backend.database import DB_PATH, get_db_connection, init_db
+
 
 @pytest.mark.asyncio
 async def test_database_initialization():
@@ -9,9 +12,10 @@ async def test_database_initialization():
     """
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
-        
+
     await init_db()
     assert os.path.exists(DB_PATH)
+
 
 @pytest.mark.asyncio
 async def test_database_connection_and_wal():
@@ -23,7 +27,7 @@ async def test_database_connection_and_wal():
         cursor = await conn.execute("SELECT 1")
         result = await cursor.fetchone()
         assert result[0] == 1
-        
+
         # Verify that WAL (Write-Ahead Logging) mode is activated to prevent Database Locked errors
         cursor = await conn.execute("PRAGMA journal_mode;")
         journal_mode = await cursor.fetchone()

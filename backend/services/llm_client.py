@@ -1,12 +1,13 @@
-from typing import List, Dict, TypeVar, Type, Optional
 import json
 import os
 import time
 from pathlib import Path
-from pydantic import BaseModel
+from typing import Dict, List, Optional, Type, TypeVar
+
 import litellm
-from loguru import logger
 from dotenv import load_dotenv
+from loguru import logger
+from pydantic import BaseModel
 
 # Load .env from project root
 env_path = Path(__file__).parent.parent.parent / ".env"
@@ -14,18 +15,19 @@ load_dotenv(env_path)
 
 litellm.set_verbose = True
 
+from backend.database import get_db_connection, get_project_settings
 from backend.models import (
+    BEAT_TYPE_CRITERIA,
+    ActionItem,
+    BeatType,
+    CharacterAction,
     Entity,
-    StoryIRBlock,
     MaestroDecision,
     MaestroEvaluation,
-    CharacterAction,
-    ProjectSettings,
-    ActionItem,
     SceneContext,
+    StoryIRBlock,
 )
 from backend.services.websocket_manager import manager
-from backend.database import get_db_connection, get_project_settings
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -188,30 +190,49 @@ class LLMClient:
             raise
 
     async def evaluate_scene_progression(
-        self, prompt: str, entities_json: str, history_json: str
+        self,
+        prompt: str,
+        entities_json: str,
+        history_json: str,
+        beat_type: BeatType = BeatType.DAILY_SLICE,
     ) -> MaestroDecision:
         """
-        Maestro deciding who speaks next.
+        Maestro 决策：是谁下一个行动？还是本 Beat 已完成？
+
+        V1.1: beat_type 专项判据替代通用张力评分。
         """
-        messages = [
-            {
-                "role": "system",
-                "content": """You are The Maestro, a high-level scene orchestrator. 
-Your ONLY job is to decide which entity acts next or if the scene is complete.
+        criteria = BEAT_TYPE_CRITERIA.get(beat_type, "")
 
-REQUIRED JSON SCHEMA:
-{
-  "next_actor_id": "string (UUID of the character) or null",
+        system_content = f"""你是 Maestro，网文日更工坊的场景编排器。你的唯一任务是：判断下一个行动者是谁，或者本 Beat 是否已经完成。
+
+[本 Beat 类型] {beat_type.value}
+[判据]
+{criteria}
+
+如果判据中的**必需**要素尚未出现在 history 中，is_beat_complete 必须为 false。
+如果所有必需要素都已齐全，is_beat_complete 为 true。
+如果要素齐全但剧情张力仍在攀升且未到收束点，is_beat_complete 可为 false。
+
+必须输出 JSON：
+{{
+  "next_actor_id": "string (实体 UUID) 或 null",
   "is_beat_complete": boolean,
-  "reasoning": "short explanation"
-}
+  "reasoning": "简短说明",
+  "missing_requirements": ["缺失的判据要素，可为空"]
+}}
 
-DO NOT output any other fields. DO NOT output 'maestro_state' or 'response_message'.
-Example: {"next_actor_id": "char-001", "is_beat_complete": false, "reasoning": "The protagonist needs to react to the explosion."}""",
-            },
+不要输出其他字段。不要输出 maestro_state/response_message/tension_score。
+Example: {{"next_actor_id": "char-001", "is_beat_complete": false, "reasoning": "反派尚未被明确挫败", "missing_requirements": ["反派外显挫败"]}}
+"""
+        messages = [
+            {"role": "system", "content": system_content},
             {
                 "role": "user",
-                "content": f"User Spark/Prompt: {prompt}\nAvailable Entities (Grimoire): {entities_json}\nRecent History: {history_json}",
+                "content": (
+                    f"用户 Spark：{prompt}\n"
+                    f"可用角色 (Grimoire)：{entities_json}\n"
+                    f"近期历史：{history_json}"
+                ),
             },
         ]
         return await self._generate_structured(messages, MaestroDecision, temperature=0.2)

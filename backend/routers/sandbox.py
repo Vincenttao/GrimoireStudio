@@ -1,29 +1,26 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException
-from pydantic import BaseModel, Field
 import asyncio
-from typing import Optional, List
-from loguru import logger
-from datetime import datetime
 import uuid as uuid_module
+from datetime import datetime
+from typing import List, Optional
 
+from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
+from loguru import logger
+from pydantic import BaseModel, Field
+
+from backend.crud.branches import create_branch, list_branches
+from backend.crud.snapshots import (
+    get_snapshot,
+)
 from backend.models import (
-    TheSpark,
+    Branch,
+    Entity,
     GrimoireSnapshot,
     GrimoireStateJSON,
     SandboxState,
-    StoryIRBlock,
-    Branch,
-    Entity,
+    TheSpark,
 )
-from backend.services.websocket_manager import manager, OverrideMessage
 from backend.services.maestro_loop import run_maestro_orchestration
-from backend.crud.branches import create_branch, get_branch, list_branches
-from backend.crud.snapshots import (
-    create_snapshot,
-    get_snapshot,
-    get_latest_snapshot,
-    list_snapshots_by_branch,
-)
+from backend.services.websocket_manager import OverrideMessage, manager
 
 router = APIRouter()
 
@@ -99,9 +96,9 @@ async def trigger_spark(spark: TheSpark, background_tasks: BackgroundTasks):
     """
     logger.info(f"Received Spark: {spark.spark_id} for Chapter {spark.chapter_id}")
 
+
     from backend.database import get_db_connection
-    from backend.models import Entity, BaseAttributes, CurrentStatus
-    import json
+    from backend.models import BaseAttributes, CurrentStatus
 
     # 1. Fetch active entities from DB to populate the snapshot
     entities = []
@@ -167,14 +164,83 @@ async def inject_override(spark_id: str, request: OverrideRequest):
 @router.post("/commit")
 async def commit_ir_block(request: CommitRequest):
     """
-    POST /api/v1/sandbox/commit
-    Finalizes the IR block, saves the final HTML, and triggers Scribe delta updates.
+    POST /api/v1/sandbox/commit — V1.1 upgraded
+    1. Persist final HTML to the IR block (storyboard)
+    2. Merge all pending SoftPatches into a new snapshot
+    3. Update daily_streak_count & last_commit_at
+    4. Broadcast STATE_CHANGE to IDLE
     """
+    from datetime import timedelta
+
+    from backend.crud import entities as ent_crud
+    from backend.crud import soft_patches as patch_crud
+    from backend.crud.storyboard import update_ir_block_html
+    from backend.database import get_db_connection, get_project_settings
+
     logger.info(f"Committing IR Block {request.ir_block_id} with final HTML.")
 
-    # Mock transition to IDLE per SPEC §3.1 End State
+    # 1. Save final HTML (if block exists)
+    try:
+        await update_ir_block_html(request.ir_block_id, request.final_content_html)
+    except Exception as e:
+        logger.warning(f"[Commit] update_ir_block_html skipped: {e}")
+
+    # 2. Merge pending SoftPatches into entities + mark merged
+    pending_patches = await patch_crud.list_pending_patches()
+    merged_count = 0
+    if pending_patches:
+        logger.info(f"[Commit] Merging {len(pending_patches)} soft patches")
+        snapshot_id = f"snap_{uuid_module.uuid4().hex[:8]}"
+        for p in pending_patches:
+            entity = await ent_crud.get_entity(p.target_entity_id)
+            if not entity:
+                continue
+            data = entity.model_dump()
+            data = patch_crud.apply_patch_to_dict(data, p.target_path, p.new_value)
+            await ent_crud.update_entity(p.target_entity_id, data)
+        merged_count = await patch_crud.mark_merged(
+            [p.patch_id for p in pending_patches], snapshot_id
+        )
+
+    # 3. Update daily streak
+    from backend.database import get_db_connection as _get_conn
+
+    async with _get_conn() as conn:
+        settings = await get_project_settings(conn)
+        now = datetime.utcnow()
+        streak = settings.daily_streak_count
+        last = settings.last_commit_at
+        if last is None:
+            streak = 1
+        else:
+            delta = now - last
+            if delta < timedelta(hours=24):
+                pass  # 同一 24h 窗口内多次 Commit，不叠加
+            elif delta < timedelta(hours=48):
+                streak += 1  # 连续一天
+            else:
+                streak = 1  # 断更重置
+        await conn.execute(
+            "UPDATE settings SET daily_streak_count = ?, last_commit_at = ? WHERE id = ?",
+            (streak, now.isoformat(), "single_row_lock"),
+        )
+        await conn.commit()
+
+    await manager.broadcast(
+        "COMMIT_COMPLETE",
+        {
+            "ir_block_id": request.ir_block_id,
+            "soft_patches_merged": merged_count,
+            "daily_streak_count": streak,
+        },
+    )
     await manager.broadcast("STATE_CHANGE", {"state": SandboxState.IDLE})
-    return {"status": "Committed"}
+
+    return {
+        "status": "Committed",
+        "soft_patches_merged": merged_count,
+        "daily_streak_count": streak,
+    }
 
 
 # --------------------------
@@ -239,7 +305,6 @@ async def rollback_to_snapshot(request: RollbackRequest):
 
     # 2. Restore entities from snapshot
     from backend.database import get_db_connection
-    from backend.models import Entity, BaseAttributes, CurrentStatus
 
     entities = snapshot.grimoire_state_json.entities
     entities_count = len(entities)

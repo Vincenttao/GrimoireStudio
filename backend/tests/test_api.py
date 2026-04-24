@@ -1,18 +1,18 @@
-import pytest
 import uuid
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
-from httpx import AsyncClient, ASGITransport
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
 from backend.main import app
-from backend.models import StoryIRBlock, SceneContext, ActionItem, POVType
+from backend.models import ActionItem, SceneContext, StoryIRBlock
 
 
 @pytest.mark.asyncio
 async def test_api_health():
     """Test standard health check endpoint."""
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
@@ -51,12 +51,8 @@ async def test_spark_endpoint_accepts_valid_payload():
     }
 
     # Mock the Maestro orchestration to prevent actual LLM calls
-    with patch(
-        "backend.routers.sandbox.run_maestro_orchestration", new_callable=AsyncMock
-    ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as ac:
+    with patch("backend.routers.sandbox.run_maestro_orchestration", new_callable=AsyncMock):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             # First create an entity
             await ac.post("/api/v1/grimoire/entities", json=entity_payload)
             # Then trigger spark
@@ -70,9 +66,7 @@ async def test_spark_endpoint_accepts_valid_payload():
 @pytest.mark.asyncio
 async def test_sandbox_state_mock():
     """Test sandbox global state returns."""
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get("/api/v1/sandbox/state")
 
     assert response.status_code == 200
@@ -102,9 +96,7 @@ async def test_grimoire_entity_soft_delete_placeholder():
         "created_at": "2026-03-11T00:00:00+00:00",
         "updated_at": "2026-03-11T00:00:00+00:00",
     }
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         await ac.post("/api/v1/grimoire/entities", json=valid_payload)
         response = await ac.delete(f"/api/v1/grimoire/entities/{random_id}")
 
@@ -152,9 +144,7 @@ async def test_render_endpoint_renders_ir_block():
         mock_client.render.return_value = "<p>Test rendered content</p>"
         mock_get_client.return_value = mock_client
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as ac:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             response = await ac.post("/api/v1/render", json=render_payload)
 
     assert response.status_code == 200
@@ -173,9 +163,7 @@ async def test_render_endpoint_returns_404_for_nonexistent_block():
         "subtext_ratio": 0.5,
     }
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post("/api/v1/render", json=render_payload)
 
     assert response.status_code == 404

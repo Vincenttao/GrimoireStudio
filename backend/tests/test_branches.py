@@ -4,18 +4,17 @@ Per PRD §3.3 - Branching Tree UI with lazy snapshot.
 """
 
 import os
+
 import pytest
 import pytest_asyncio
-from datetime import datetime
 
-from backend.database import DB_PATH, init_db, get_db_connection
 from backend.crud.branches import (
     create_branch,
+    deactivate_branch,
     get_branch,
     list_branches,
-    deactivate_branch,
 )
-from backend.models import Branch
+from backend.database import DB_PATH, init_db
 
 
 @pytest_asyncio.fixture(autouse=True)

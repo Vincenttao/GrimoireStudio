@@ -1,19 +1,139 @@
 import asyncio
-from typing import List
-from loguru import logger
-from datetime import datetime
 import json
+import os
+from datetime import datetime
+from pathlib import Path
+from typing import List
 
-from backend.models import (
-    SandboxState,
-    TheSpark,
-    GrimoireSnapshot,
-    StoryIRBlock,
-    CharacterAction,
-)
-from backend.services.websocket_manager import manager
-from backend.services.llm_client import llm_client
+from loguru import logger
+
 from backend.database import get_db_connection
+from backend.models import (
+    CharacterAction,
+    GrimoireSnapshot,
+    SandboxState,
+    StoryIRBlock,
+    TheSpark,
+)
+from backend.services.llm_client import llm_client
+from backend.services.websocket_manager import manager
+
+# ==========================================
+# V1.1: JSONL Scratchpad — crash-resilient Turn Log
+# ==========================================
+
+SCRATCHPAD_JSONL_PATH = Path(os.getenv("SCRATCHPAD_JSONL_PATH", "scratchpad.jsonl"))
+
+
+def _scratchpad_append(record: dict) -> None:
+    """Append a single record to scratchpad.jsonl. Never throws."""
+    try:
+        record.setdefault("ts", datetime.utcnow().isoformat())
+        SCRATCHPAD_JSONL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(SCRATCHPAD_JSONL_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception as e:  # never block inference on disk errors
+        logger.warning(f"[Scratchpad] Append failed (non-fatal): {e}")
+
+
+def scratchpad_scan_unfinished() -> List[dict]:
+    """
+    Scan scratchpad.jsonl at startup. Return a list of unfinished traces.
+    Each dict: {trace_id, spark_id, last_state, last_turn, events: [...]}
+    A trace is "unfinished" if no COMMITTED/INTERRUPTED terminal event is found.
+    """
+    if not SCRATCHPAD_JSONL_PATH.exists():
+        return []
+
+    traces: dict[str, dict] = {}
+    try:
+        with open(SCRATCHPAD_JSONL_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                tid = row.get("trace_id") or row.get("spark_id")
+                if not tid:
+                    continue
+                entry = traces.setdefault(
+                    tid,
+                    {
+                        "trace_id": tid,
+                        "spark_id": row.get("spark_id"),
+                        "events": [],
+                        "terminal": False,
+                    },
+                )
+                entry["events"].append(row)
+                event_name = row.get("event") or row.get("state")
+                if event_name in ("COMMITTED", "INTERRUPTED"):
+                    entry["terminal"] = True
+    except Exception as e:
+        logger.error(f"[Scratchpad] Scan failed: {e}")
+        return []
+
+    return [
+        {
+            "trace_id": t["trace_id"],
+            "spark_id": t["spark_id"],
+            "last_state": (t["events"][-1].get("state") if t["events"] else None),
+            "last_turn": (t["events"][-1].get("turn") if t["events"] else None),
+            "events_count": len(t["events"]),
+        }
+        for t in traces.values()
+        if not t["terminal"]
+    ]
+
+
+def scratchpad_compact(keep_terminal_recent: int = 100) -> None:
+    """
+    Compact scratchpad.jsonl: keep only unfinished + recent-N terminal traces.
+    Safe to run at startup.
+    """
+    if not SCRATCHPAD_JSONL_PATH.exists():
+        return
+    try:
+        traces: dict[str, list[dict]] = {}
+        terminal_order: list[str] = []
+        with open(SCRATCHPAD_JSONL_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                tid = row.get("trace_id") or row.get("spark_id")
+                if not tid:
+                    continue
+                traces.setdefault(tid, []).append(row)
+                if row.get("event") in ("COMMITTED", "INTERRUPTED") and tid not in terminal_order:
+                    terminal_order.append(tid)
+
+        keep_terminal = set(terminal_order[-keep_terminal_recent:])
+        kept_lines: list[str] = []
+        for tid, rows in traces.items():
+            has_terminal = any(r.get("event") in ("COMMITTED", "INTERRUPTED") for r in rows)
+            if not has_terminal or tid in keep_terminal:
+                for row in rows:
+                    kept_lines.append(json.dumps(row, ensure_ascii=False))
+
+        with open(SCRATCHPAD_JSONL_PATH, "w", encoding="utf-8") as f:
+            f.write("\n".join(kept_lines))
+            if kept_lines:
+                f.write("\n")
+    except Exception as e:
+        logger.warning(f"[Scratchpad] Compact failed (non-fatal): {e}")
+
+
+# ==========================================
+# In-memory scratchpad (unchanged) + sqlite checkpoint
+# ==========================================
 
 
 class Scratchpad:
@@ -40,8 +160,8 @@ async def save_checkpoint(spark_id: str, scratchpad: "Scratchpad", current_turn:
     checkpoint = scratchpad.to_checkpoint_json(current_turn)
     async with get_db_connection() as conn:
         await conn.execute(
-            """INSERT OR REPLACE INTO scratchpad_checkpoints 
-               (spark_id, turn_logs_json, pending_facts_json, current_turn, created_at) 
+            """INSERT OR REPLACE INTO scratchpad_checkpoints
+               (spark_id, turn_logs_json, pending_facts_json, current_turn, created_at)
                VALUES (?, ?, ?, ?, ?)""",
             (
                 spark_id,
@@ -52,9 +172,7 @@ async def save_checkpoint(spark_id: str, scratchpad: "Scratchpad", current_turn:
             ),
         )
         await conn.commit()
-    logger.info(
-        f"[Checkpoint] Saved scratchpad state for spark {spark_id} at turn {current_turn}"
-    )
+    logger.info(f"[Checkpoint] Saved scratchpad state for spark {spark_id} at turn {current_turn}")
 
 
 async def load_checkpoint(spark_id: str) -> tuple["Scratchpad", int] | None:
@@ -75,33 +193,49 @@ async def load_checkpoint(spark_id: str) -> tuple["Scratchpad", int] | None:
 
 async def clear_checkpoint(spark_id: str):
     async with get_db_connection() as conn:
-        await conn.execute(
-            "DELETE FROM scratchpad_checkpoints WHERE spark_id = ?", (spark_id,)
-        )
+        await conn.execute("DELETE FROM scratchpad_checkpoints WHERE spark_id = ?", (spark_id,))
         await conn.commit()
     logger.info(f"[Checkpoint] Cleared checkpoint for spark {spark_id}")
 
 
 async def persist_to_sqlite(ir_block: StoryIRBlock):
-    """
-    Mock saving block for Phase 3. Real integration happens in Phase 4.
-    """
+    """Mock saving block for Phase 3. Real integration happens in Phase 4."""
     logger.info(f"Persisted IR Block: {ir_block.block_id}")
 
 
-async def run_maestro_orchestration(
-    spark: TheSpark, grimoire_snapshot: GrimoireSnapshot
-):
+# ==========================================
+# Orchestration Loop
+# ==========================================
+
+
+async def run_maestro_orchestration(spark: TheSpark, grimoire_snapshot: GrimoireSnapshot):
     """
-    The Maestro Loop logic strictly mirroring SPEC.md §3.1
+    The Maestro Loop — V1.1 edition.
+    - beat_type 驱动的完成判据
+    - JSONL scratchpad 落盘
     """
-    logger.info(f"Starting Maestro Orchestration for Spark: {spark.spark_id}")
+    logger.info(
+        f"Starting Maestro Orchestration for Spark: {spark.spark_id} (beat_type={spark.beat_type})"
+    )
+    trace_id = spark.spark_id
     scratchpad = Scratchpad(max_turns=10)
     override_queue = manager.get_ws_override_queue(spark.spark_id)
 
-    # 0. Broadcast launch
+    _scratchpad_append(
+        {
+            "trace_id": trace_id,
+            "spark_id": spark.spark_id,
+            "event": "STARTED",
+            "beat_type": spark.beat_type.value,
+            "target_char_count": spark.target_char_count,
+        }
+    )
+
     current_state = SandboxState.SPARK_RECEIVED
     await manager.broadcast("STATE_CHANGE", {"state": current_state})
+    _scratchpad_append(
+        {"trace_id": trace_id, "spark_id": spark.spark_id, "state": current_state.value}
+    )
     logger.info(f"State transition: -> {current_state}")
 
     current_state = SandboxState.REASONING
@@ -110,11 +244,9 @@ async def run_maestro_orchestration(
     try:
         for turn in range(scratchpad.max_turns):
             logger.info(f"--- Starting Turn {turn} ---")
-            # Broadcast state
             await manager.broadcast("STATE_CHANGE", {"state": current_state})
             await manager.broadcast("TURN_STARTED", {"turn": turn})
 
-            # 2. Orchestration Decision
             entities_json = grimoire_snapshot.grimoire_state_json.model_dump_json()
             history_json = "\n".join([t.action for t in scratchpad.turn_logs])
 
@@ -123,9 +255,19 @@ async def run_maestro_orchestration(
                 prompt=spark.user_prompt,
                 entities_json=entities_json,
                 history_json=history_json,
+                beat_type=spark.beat_type,
             )
             logger.info(f"Maestro Decision: {decision.model_dump_json()}")
             await manager.broadcast("SYS_DEV_LOG", {"reasoning": decision.reasoning})
+            _scratchpad_append(
+                {
+                    "trace_id": trace_id,
+                    "spark_id": spark.spark_id,
+                    "turn": turn,
+                    "event": "MAESTRO_DECISION",
+                    "payload": decision.model_dump(),
+                }
+            )
 
             if decision.is_beat_complete:
                 current_state = SandboxState.EMITTING_IR
@@ -133,17 +275,21 @@ async def run_maestro_orchestration(
 
             current_state = SandboxState.CALLING_CHARACTER
             await manager.broadcast("STATE_CHANGE", {"state": current_state})
+            _scratchpad_append(
+                {
+                    "trace_id": trace_id,
+                    "spark_id": spark.spark_id,
+                    "turn": turn,
+                    "state": current_state.value,
+                }
+            )
 
-            # 3. 3-Layer Prompting
             if decision.next_actor_id is None:
-                logger.warning(
-                    "Maestro returned null next_actor_id but sequence is not complete."
-                )
+                logger.warning("Maestro returned null next_actor_id but sequence is not complete.")
                 break
 
             await manager.broadcast("DISPATCH", {"actor_id": decision.next_actor_id})
 
-            # Find actor entity
             actor = next(
                 (
                     e
@@ -153,9 +299,7 @@ async def run_maestro_orchestration(
                 None,
             )
             if not actor:
-                raise ValueError(
-                    f"Actor {decision.next_actor_id} not found in Grimoire Snapshot."
-                )
+                raise ValueError(f"Actor {decision.next_actor_id} not found in Grimoire Snapshot.")
 
             director_note = spark.overrides.get(decision.next_actor_id, "")
 
@@ -163,46 +307,44 @@ async def run_maestro_orchestration(
                 actor=actor,
                 history=scratchpad.turn_logs,
                 director_note=director_note,
-                scene_context="MVP Room",  # Hardcoded for now
+                scene_context="MVP Room",
             )
 
-            # 4. Save and Evaluate
             scratchpad.turn_logs.append(char_response)
             current_state = SandboxState.EVALUATING
             await manager.broadcast("STATE_CHANGE", {"state": current_state})
+            _scratchpad_append(
+                {
+                    "trace_id": trace_id,
+                    "spark_id": spark.spark_id,
+                    "turn": turn,
+                    "state": current_state.value,
+                    "actor_id": decision.next_actor_id,
+                    "payload": char_response.model_dump(),
+                }
+            )
 
-            # Checkpoint: Save state every 3 turns for crash recovery
             CHECKPOINT_INTERVAL = 3
             if turn > 0 and turn % CHECKPOINT_INTERVAL == 0:
                 await save_checkpoint(spark.spark_id, scratchpad, turn)
 
-            # 5. Process Pending Overrides (Injecting God Interventions between LLM generations)
             if override_queue.has_pending():
                 latest_override = override_queue.pop_all()[-1]
-                spark.overrides[latest_override.entity_id] = (
-                    latest_override.new_directive
-                )
-                # Forced evaluation re-try for next loop
+                spark.overrides[latest_override.entity_id] = latest_override.new_directive
                 continue
 
-            # 6. Tension Score
             evaluation = await llm_client.score_character_output(
                 char_response=char_response, history_json=history_json
             )
 
             if not evaluation.is_valid:
-                scratchpad.turn_logs.pop()  # Rollback illegal move
-                await manager.broadcast(
-                    "SYS_DEV_LOG", {"reject": evaluation.reject_reason}
-                )
+                scratchpad.turn_logs.pop()
+                await manager.broadcast("SYS_DEV_LOG", {"reject": evaluation.reject_reason})
                 current_state = SandboxState.REASONING
-                # Continue loop to force Maestro to reason again
                 continue
 
-            # If valid, go back to reasoning for next actor
             current_state = SandboxState.REASONING
 
-        # 7. Fallback Block
         if current_state != SandboxState.EMITTING_IR:
             logger.info("Max turns reached or loop interrupted, forcing EMITTING_IR")
             await manager.broadcast(
@@ -213,19 +355,14 @@ async def run_maestro_orchestration(
         logger.info(f"Final State transition: -> {current_state}")
         await manager.broadcast("STATE_CHANGE", {"state": current_state})
 
-        # Real extraction happens later
-        # ir_block = await llm_client.extract_story_ir(scratchpad.turn_logs, spark.chapter_id)
-        # await persist_to_sqlite(ir_block)
-
-        # Clear checkpoint on successful completion
         await clear_checkpoint(spark.spark_id)
 
-        # NOTE: Do NOT jump to IDLE immediately, wait for user COMMIT (per SPEC edge cases)
         logger.info("Orchestration loop finished. Waiting for user commit.")
         await manager.broadcast("SCENE_COMPLETE", {"ir_block": "MOCK_IR_BLOCK_FOR_NOW"})
 
+        _scratchpad_append({"trace_id": trace_id, "spark_id": spark.spark_id, "event": "COMMITTED"})
+
     except asyncio.CancelledError:
-        # User CUT
         current_state = SandboxState.INTERRUPTED
         scratchpad.clear()
         await clear_checkpoint(spark.spark_id)
@@ -233,13 +370,21 @@ async def run_maestro_orchestration(
         await manager.broadcast(
             "ERROR", {"message": "推演已被造物主强行切断 (Cut)。", "code": "ERR_CUT"}
         )
+        _scratchpad_append(
+            {"trace_id": trace_id, "spark_id": spark.spark_id, "event": "INTERRUPTED"}
+        )
         raise
 
     except Exception as e:
-        # Save checkpoint on error for potential recovery
         current_turn = turn if "turn" in dir() and isinstance(turn, int) else 0
         await save_checkpoint(spark.spark_id, scratchpad, current_turn)
-        await manager.broadcast(
-            "ERROR", {"message": f"系统崩溃: {str(e)}", "code": "ERR_SYS"}
+        await manager.broadcast("ERROR", {"message": f"系统崩溃: {str(e)}", "code": "ERR_SYS"})
+        _scratchpad_append(
+            {
+                "trace_id": trace_id,
+                "spark_id": spark.spark_id,
+                "event": "ERROR",
+                "message": str(e),
+            }
         )
         raise

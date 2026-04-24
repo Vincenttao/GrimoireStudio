@@ -32,3 +32,20 @@ Thumbs.db
 # Project specific
 backend/tests/.pytest_cache/
 temp_bettafish/
+
+# Runtime artifacts (SQLite DB, scratchpad log, server logs)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+scratchpad.jsonl
+backend.log
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Playwright test artifacts
+frontend/test-results/
+frontend/playwright-report/

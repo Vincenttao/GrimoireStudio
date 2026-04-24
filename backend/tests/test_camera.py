@@ -1,17 +1,17 @@
-import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from backend.models import (
-    StoryIRBlock,
-    SceneContext,
     ActionItem,
-    RenderRequest,
-    POVType,
-    Entity,
-    EntityType,
     BaseAttributes,
     CurrentStatus,
+    Entity,
+    EntityType,
+    POVType,
+    SceneContext,
+    StoryIRBlock,
 )
 
 
@@ -72,9 +72,7 @@ class TestCameraAgent:
         """Test: Camera renders IR block with omniscient POV and returns valid HTML."""
         from backend.services.camera_client import camera_client
 
-        with patch.object(
-            camera_client, "_generate_prose", new_callable=AsyncMock
-        ) as mock_gen:
+        with patch.object(camera_client, "_generate_prose", new_callable=AsyncMock) as mock_gen:
             mock_gen.return_value = "<p>夜幕低垂，李道长拆开信件...</p>"
 
             result = await camera_client.render(
@@ -95,9 +93,7 @@ class TestCameraAgent:
         """Test: First-person POV renders from character's perspective."""
         from backend.services.camera_client import camera_client
 
-        with patch.object(
-            camera_client, "_generate_prose", new_callable=AsyncMock
-        ) as mock_gen:
+        with patch.object(camera_client, "_generate_prose", new_callable=AsyncMock) as mock_gen:
             mock_gen.return_value = "<p>我拆开信件，冷笑一声...</p>"
 
             result = await camera_client.render(
@@ -114,15 +110,11 @@ class TestCameraAgent:
             assert "FIRST_PERSON" in str(call_args) or "第一人称" in str(call_args)
 
     @pytest.mark.asyncio
-    async def test_render_ir_block_with_subtext_ratio_adjusts_style(
-        self, sample_ir_block
-    ):
+    async def test_render_ir_block_with_subtext_ratio_adjusts_style(self, sample_ir_block):
         """Test: Higher subtext_ratio produces more internal monologue."""
         from backend.services.camera_client import camera_client
 
-        with patch.object(
-            camera_client, "_generate_prose", new_callable=AsyncMock
-        ) as mock_gen:
+        with patch.object(camera_client, "_generate_prose", new_callable=AsyncMock) as mock_gen:
             mock_gen.return_value = "<p>信纸在指间微微颤抖...</p>"
 
             await camera_client.render(
@@ -140,9 +132,7 @@ class TestCameraAgent:
         """Test: Retry with same IR produces different prose but IR remains unchanged."""
         from backend.services.camera_client import camera_client
 
-        with patch.object(
-            camera_client, "_generate_prose", new_callable=AsyncMock
-        ) as mock_gen:
+        with patch.object(camera_client, "_generate_prose", new_callable=AsyncMock) as mock_gen:
             mock_gen.side_effect = ["<p>版本一</p>", "<p>版本二</p>"]
 
             result1 = await camera_client.render(
@@ -164,7 +154,7 @@ class TestCameraAgent:
     @pytest.mark.asyncio
     async def test_render_empty_ir_block_raises_error(self):
         """Test: Empty action_sequence raises validation error."""
-        from backend.services.camera_client import camera_client, CameraError
+        from backend.services.camera_client import CameraError, camera_client
 
         empty_block = StoryIRBlock(
             block_id="block_empty",
@@ -186,11 +176,9 @@ class TestCameraAgent:
             )
 
     @pytest.mark.asyncio
-    async def test_render_character_limited_pov_requires_character(
-        self, sample_ir_block
-    ):
+    async def test_render_character_limited_pov_requires_character(self, sample_ir_block):
         """Test: CHARACTER_LIMITED POV requires pov_character to be set."""
-        from backend.services.camera_client import camera_client, CameraError
+        from backend.services.camera_client import CameraError, camera_client
 
         with pytest.raises(CameraError):
             await camera_client.render(
@@ -206,9 +194,7 @@ class TestCameraAgent:
         """Test: Style template is passed to prompt."""
         from backend.services.camera_client import camera_client
 
-        with patch.object(
-            camera_client, "_generate_prose", new_callable=AsyncMock
-        ) as mock_gen:
+        with patch.object(camera_client, "_generate_prose", new_callable=AsyncMock) as mock_gen:
             mock_gen.return_value = "<p>肃杀的文字...</p>"
 
             await camera_client.render(
